@@ -33,12 +33,6 @@ static void reloc32(uint32_t &ins, uint64_t S, int64_t A) {
   applyReloc(ins, S + A, 0xffffffff);
 }
 
-/// \brief R_AVR_PC32
-/// local/external: word32 S + A i- P (truncate)
-void relocpc32(uint32_t &ins, uint64_t P, uint64_t S, int64_t A) {
-  applyReloc(ins, S + A - P, 0xffffffff);
-}
-
 namespace {
 
 template <class ELFT> class RelocationHandler : public TargetRelocationHandler {

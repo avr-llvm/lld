@@ -26,6 +26,7 @@ add_llvm_library(lldDriver
     lldELF
     lldAArch64ELFTarget
     lldARMELFTarget
+    lldAVRELFTarget
     lldHexagonELFTarget
     lldMipsELFTarget
     lldX86ELFTarget

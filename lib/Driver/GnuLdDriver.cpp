@@ -199,6 +199,10 @@ getArchType(const llvm::Triple &triple, StringRef value) {
     if (value == "armelf_linux_eabi")
       return llvm::Triple::arm;
     return llvm::None;
+  case llvm::Triple::avr:
+    if (value == "avr")
+      return llvm::Triple::avr;
+    return llvm::None;
   default:
     return llvm::None;
   }
@@ -341,6 +345,7 @@ GnuLdDriver::createELFLinkingContext(llvm::Triple triple) {
   if ((p = elf::targetName##LinkingContext::create(triple))) return p;
   LLVM_TARGET(AArch64)
   LLVM_TARGET(ARM)
+  LLVM_TARGET(AVR)
   LLVM_TARGET(Hexagon)
   LLVM_TARGET(Mips)
   LLVM_TARGET(X86)
