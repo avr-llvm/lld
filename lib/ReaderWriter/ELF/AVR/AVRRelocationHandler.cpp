@@ -17,8 +17,25 @@ using namespace elf;
 using namespace llvm::ELF;
 using namespace llvm::support;
 
+/// \brief Applies a relocation.
+/// \param ins The unrelocated data.
+/// \param result The fixup value.
+/// \param mask A mask containing the bits we want to modify.
 static inline void applyReloc(uint32_t &ins, uint32_t result, uint32_t mask) {
+  // (integer of the bits we don't want to touch) |
+  // (integer of the bits we are touching)
   ins = (ins & ~mask) | (result & mask);
+}
+
+/// \brief Applies a basic relocation.
+/// A basic relocation is simply a 'len' bit absolute fixup.
+/// \param ins The unrelocated data.
+/// \param len The length of the relocation (in bits).
+static inline void applyBasicReloc(uint32_t &ins, uint64_t S, int64_t A, uint8_t len) {
+	// create a bitmask with 'len' number of 1's on the right
+    uint32_t mask = ~(0xffff << len);
+
+	applyReloc(ins, S + A, mask);
 }
 
 template <size_t BITS, class T> inline T signExtend(T val) {
@@ -29,12 +46,53 @@ template <size_t BITS, class T> inline T signExtend(T val) {
 
 /// \brief R_AVR_32
 /// local/external: word32 S + A (truncate)
+// FIXME: Once it is sure that applyBasicReloc does
+//        what it says, remove the assertions.
 static void reloc32(uint32_t &ins, uint64_t S, int64_t A) {
+  #ifndef NDEBUG
+  uint32_t prevValue = ins;
+  #endif
+
+  applyBasicReloc(ins, S, A, 32);
+
+  #ifndef NDEBUG
+  uint32_t tmp = prevValue;
   applyReloc(ins, S + A, 0xffffffff);
+
+  assert(tmp == ins);
+  #endif
 }
 
-static void relocLO8LDI(uint32_t &ins, uint64_t S, int64_t A) {
+/// \brief R_AVR_7_PCREL
+static void relocpc7(uint32_t &ins, uint64_t P, uint64_t S, int64_t A) {
+  int32_t result = S + A - P;
+  applyReloc(ins, result >> 1, 0x7f);
+}
+
+/// \brief R_AVR_13_PCREL
+static void relocpc13(uint32_t &ins, uint64_t P, uint64_t S, int64_t A) {
+  int32_t result = S + A - P;
+  applyReloc(ins, result >> 1, 0x1fff);
+}
+
+/// \brief R_AVR_16
+static void reloc16(uint32_t &ins, uint64_t S, int64_t A) {
+  applyBasicReloc(ins, S, A, 16);
+}
+
+/// \brief R_AVR_LO8_LDI
+static void reloc8loldi(uint32_t &ins, uint64_t S, int64_t A) {
   llvm_unreachable("R_AVR_LO8_LDI relocation not implemented");
+}
+
+/// \brief R_AVR_6
+static void reloc6(uint32_t &ins, uint64_t S, int64_t A) {
+  applyBasicReloc(ins, S, A, 6);
+}
+
+/// \brief R_AVR_8
+static void reloc8(uint32_t &ins, uint64_t S, int64_t A) {
+  applyBasicReloc(ins, S, A, 8);
 }
 
 namespace {
@@ -68,7 +126,7 @@ std::error_code RelocationHandler<ELFT>::applyRelocation(
   uint8_t *atomContent = buf.getBufferStart() + atom._fileOffset;
   uint8_t *location = atomContent + ref.offsetInAtom();
   uint64_t targetVAddress = writer.addressOfAtom(ref.target());
-  //uint64_t relocVAddress = atom._virtualAddr + ref.offsetInAtom();
+  uint64_t relocVAddress = atom._virtualAddr + ref.offsetInAtom();
   uint32_t ins = endian::read<uint32_t, little, 2>(location);
 
   switch (ref.kindValue()) {
@@ -78,16 +136,16 @@ std::error_code RelocationHandler<ELFT>::applyRelocation(
     reloc32(ins, targetVAddress, ref.addend());
     break;
   case R_AVR_LO8_LDI:
-    relocLO8LDI(ins, targetVAddress, ref.addend());
+    reloc8loldi(ins, targetVAddress, ref.addend());
     break;
   case R_AVR_7_PCREL:
-	llvm_unreachable("unimplemented relocation type: R_AVR_7_PCREL");
+    relocpc7(ins, relocVAddress, targetVAddress, ref.addend());
 	break;
   case R_AVR_13_PCREL:
-	llvm_unreachable("unimplemented relocation type: R_AVR_13_PCREL");
+	relocpc13(ins, relocVAddress, targetVAddress, ref.addend());
 	break;
   case R_AVR_16:
-	llvm_unreachable("unimplemented relocation type: R_AVR_16");
+	reloc16(ins, targetVAddress, ref.addend());
 	break;
   case R_AVR_16_PM:
 	llvm_unreachable("unimplemented relocation type: R_AVR_16_PM");
@@ -132,7 +190,7 @@ std::error_code RelocationHandler<ELFT>::applyRelocation(
 	llvm_unreachable("unimplemented relocation type: R_AVR_LDI");
 	break;
   case R_AVR_6:
-	llvm_unreachable("unimplemented relocation type: R_AVR_6");
+	reloc6(ins, targetVAddress, ref.addend());
 	break;
   case R_AVR_6_ADIW:
 	llvm_unreachable("unimplemented relocation type: R_AVR_6_ADIW");
@@ -150,7 +208,7 @@ std::error_code RelocationHandler<ELFT>::applyRelocation(
 	llvm_unreachable("unimplemented relocation type: R_AVR_HI8_LDI_GS");
 	break;
   case R_AVR_8:
-	llvm_unreachable("unimplemented relocation type: R_AVR_8");
+	reloc8(ins, targetVAddress, ref.addend());
 	break;
   case R_AVR_8_LO8:
 	llvm_unreachable("unimplemented relocation type: R_AVR_8_LO8");
