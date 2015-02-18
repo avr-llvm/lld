@@ -33,6 +33,10 @@ static void reloc32(uint32_t &ins, uint64_t S, int64_t A) {
   applyReloc(ins, S + A, 0xffffffff);
 }
 
+static void relocLO8LDI(uint32_t &ins, uint64_t S, int64_t A) {
+  llvm_unreachable("R_AVR_LO8_LDI relocation not implemented");
+}
+
 namespace {
 
 template <class ELFT> class RelocationHandler : public TargetRelocationHandler {
@@ -72,6 +76,9 @@ std::error_code RelocationHandler<ELFT>::applyRelocation(
     break;
   case R_AVR_32:
     reloc32(ins, targetVAddress, ref.addend());
+    break;
+  case R_AVR_LO8_LDI:
+    relocLO8LDI(ins, targetVAddress, ref.addend());
     break;
   default:
     return make_unhandled_reloc_error();
