@@ -19,6 +19,7 @@ void AVRRelocationStringTable::registerTable(Registry &registry) {
 
 #define ELF_RELOC(name, value) LLD_KIND_STRING_ENTRY(name),
 
+// FIXME: this can't be right - this is the Mips stuff.
 const Registry::KindStrings AVRRelocationStringTable::kindStrings[] = {
 #include "llvm/Support/ELFRelocs/AVR.def"
   LLD_KIND_STRING_ENTRY(LLD_R_AVR_GLOBAL_GOT),

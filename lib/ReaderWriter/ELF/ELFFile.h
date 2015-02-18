@@ -478,6 +478,8 @@ template <class ELFT> Reference::KindArch ELFFile<ELFT>::kindArch() {
     return Reference::KindArch::Mips;
   case llvm::ELF::EM_AARCH64:
     return Reference::KindArch::AArch64;
+  case llvm::ELF::EM_AVR:
+    return Reference::KindArch::AVR;
   }
   llvm_unreachable("unsupported e_machine value");
 }

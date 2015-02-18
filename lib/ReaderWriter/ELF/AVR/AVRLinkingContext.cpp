@@ -10,7 +10,6 @@
 #include "Atoms.h"
 #include "AVRCtorsOrderPass.h"
 #include "AVRLinkingContext.h"
-#include "AVRRelocationPass.h"
 #include "AVRTargetHandler.h"
 
 using namespace lld;
@@ -55,9 +54,6 @@ StringRef AVRLinkingContext::getDefaultInterpreter() const {
 }
 
 void AVRLinkingContext::addPasses(PassManager &pm) {
-  auto pass = createAVRRelocationPass(*this);
-  if (pass)
-    pm.add(std::move(pass));
   ELFLinkingContext::addPasses(pm);
   pm.add(llvm::make_unique<elf::AVRCtorsOrderPass>());
 }

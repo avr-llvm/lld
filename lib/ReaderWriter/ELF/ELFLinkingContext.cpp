@@ -82,6 +82,8 @@ uint16_t ELFLinkingContext::getOutputMachine() const {
     return llvm::ELF::EM_MIPS;
   case llvm::Triple::aarch64:
     return llvm::ELF::EM_AARCH64;
+  case llvm::Triple::avr:
+    return llvm::ELF::EM_AVR;
   case llvm::Triple::arm:
     return llvm::ELF::EM_ARM;
   default:
