@@ -1,10 +1,6 @@
 
-LLVM Linker (lld)
-==============================
+# AVR-LLD
 
-This directory and its subdirectories contain source code for the LLVM Linker, a
-modular cross platform linker which is built as part of the LLVM compiler
-infrastructure project.
+A fork of LLVM's linker supporting AVR.
 
-lld is open source software. You may freely distribute it under the terms of
-the license agreement found in LICENSE.txt.
+**NOTE**: It is currently simply in a 'compilable' state, and is no where near finished.

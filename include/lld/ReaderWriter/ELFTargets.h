@@ -24,6 +24,7 @@ namespace elf {
 // FIXME: #include "llvm/Config/Targets.def"
 LLVM_TARGET(AArch64)
 LLVM_TARGET(ARM)
+LLVM_TARGET(AVR)
 LLVM_TARGET(Hexagon)
 LLVM_TARGET(Mips)
 LLVM_TARGET(X86)
