@@ -3,4 +3,4 @@
 
 A fork of LLVM's linker supporting AVR.
 
-**NOTE**: It is currently simply in a 'compilable' state, and is no where near finished.
+Any attempt at use will likely yield a "relocation not supported" error.
