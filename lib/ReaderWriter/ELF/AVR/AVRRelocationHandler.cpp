@@ -98,7 +98,7 @@ static inline void relocldi(uint32_t &ins, uint32_t target) {
 }
 
 /// \brief R_AVR_LO8_LDI
-static void reloc8loldi(uint32_t &ins, uint64_t target) {
+static void reloclo8ldi(uint32_t &ins, uint64_t target) {
 
   // the target occupies a maximum of 16 bits
 
@@ -109,7 +109,7 @@ static void reloc8loldi(uint32_t &ins, uint64_t target) {
 }
 
 /// \brief R_AVR_HI8_LDI
-static void reloc8hildi(uint32_t &ins, uint64_t target) {
+static void relochi8ldi(uint32_t &ins, uint64_t target) {
 
   // the target occupies a maximum of 16 bits
 
@@ -121,7 +121,7 @@ static void reloc8hildi(uint32_t &ins, uint64_t target) {
 }
 
 /// \brief R_AVR_HH8_LDI
-static void reloc8hhldi(uint32_t &ins, uint64_t target) {
+static void relochh8ldi(uint32_t &ins, uint64_t target) {
 
   // the target occupies a maximum of 24 bits
 
@@ -158,6 +158,18 @@ static void reloc6adiw(uint32_t &ins, uint64_t S, int64_t A) {
                      ((target & 0xf)));         // LSB
 
   applyReloc(ins, result, mask);
+}
+
+/// \brief R_AVR_MS8_LDI
+static void relocms8ldi(uint32_t &ins, uint64_t target) {
+
+  // the target occupies a maximum of 32 bits
+
+  // take the highest 8 bits of the target
+  target >>= 24;
+  target &= 0xff;
+
+  relocldi(ins, target);
 }
 
 /// \brief R_AVR_8
@@ -252,22 +264,22 @@ std::error_code RelocationHandler<ELFT>::applyRelocation(
     llvm_unreachable("unimplemented relocation type: R_AVR_16_PM");
     break;
   case R_AVR_LO8_LDI:
-    reloc8loldi(ins, targetVAddress+ref.addend());
+    reloclo8ldi(ins, targetVAddress+ref.addend());
     break;
   case R_AVR_HI8_LDI:
-    reloc8hildi(ins, targetVAddress+ref.addend());
+    relochi8ldi(ins, targetVAddress+ref.addend());
     break;
   case R_AVR_HH8_LDI:
-    reloc8hhldi(ins, targetVAddress+ref.addend());
+    relochh8ldi(ins, targetVAddress+ref.addend());
     break;
   case R_AVR_LO8_LDI_NEG:
-    reloc8loldi(ins, -(targetVAddress+ref.addend()));
+    reloclo8ldi(ins, -(targetVAddress+ref.addend()));
     break;
   case R_AVR_HI8_LDI_NEG:
-    reloc8hildi(ins, -(targetVAddress+ref.addend()));
+    relochi8ldi(ins, -(targetVAddress+ref.addend()));
     break;
   case R_AVR_HH8_LDI_NEG:
-    reloc8hhldi(ins, -(targetVAddress+ref.addend()));
+    relochh8ldi(ins, -(targetVAddress+ref.addend()));
     break;
   case R_AVR_LO8_LDI_PM:
     llvm_unreachable("unimplemented relocation type: R_AVR_LO8_LDI_PM");
@@ -300,7 +312,7 @@ std::error_code RelocationHandler<ELFT>::applyRelocation(
     reloc6adiw(ins, targetVAddress, ref.addend());
     break;
   case R_AVR_MS8_LDI:
-    llvm_unreachable("unimplemented relocation type: R_AVR_MS8_LDI");
+    relocms8ldi(ins, targetVAddress+ref.addend());
     break;
   case R_AVR_MS8_LDI_NEG:
     llvm_unreachable("unimplemented relocation type: R_AVR_MS8_LDI_NEG");
