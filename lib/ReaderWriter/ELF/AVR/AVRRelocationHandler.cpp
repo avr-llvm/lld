@@ -98,10 +98,9 @@ static inline void relocldi(uint32_t &ins, uint32_t target) {
 }
 
 /// \brief R_AVR_LO8_LDI
-static void reloc8loldi(uint32_t &ins, uint64_t S, int64_t A) {
+static void reloc8loldi(uint32_t &ins, uint64_t target) {
 
   // the target occupies a maximum of 16 bits
-  uint32_t target = S + A;
 
   // take the low 8 bits of the target
   target &= 0xff;
@@ -110,10 +109,9 @@ static void reloc8loldi(uint32_t &ins, uint64_t S, int64_t A) {
 }
 
 /// \brief R_AVR_HI8_LDI
-static void reloc8hildi(uint32_t &ins, uint64_t S, int64_t A) {
+static void reloc8hildi(uint32_t &ins, uint64_t target) {
 
   // the target occupies a maximum of 16 bits
-  uint32_t target = S + A;
 
   // take the high 8 bits of the target
   target &= 0xff00;
@@ -123,10 +121,9 @@ static void reloc8hildi(uint32_t &ins, uint64_t S, int64_t A) {
 }
 
 /// \brief R_AVR_HH8_LDI
-static void reloc8hhldi(uint32_t &ins, uint64_t S, int64_t A) {
+static void reloc8hhldi(uint32_t &ins, uint64_t target) {
 
   // the target occupies a maximum of 24 bits
-  uint32_t target = S + A;
 
   // take the highest 8 bits of the target
   target >>= 16;
@@ -222,22 +219,22 @@ std::error_code RelocationHandler<ELFT>::applyRelocation(
     llvm_unreachable("unimplemented relocation type: R_AVR_16_PM");
     break;
   case R_AVR_LO8_LDI:
-    reloc8loldi(ins, targetVAddress, ref.addend());
+    reloc8loldi(ins, targetVAddress+ref.addend());
     break;
   case R_AVR_HI8_LDI:
-    reloc8hildi(ins, targetVAddress, ref.addend());
+    reloc8hildi(ins, targetVAddress+ref.addend());
     break;
   case R_AVR_HH8_LDI:
-    reloc8hhldi(ins, targetVAddress, ref.addend());
+    reloc8hhldi(ins, targetVAddress+ref.addend());
     break;
   case R_AVR_LO8_LDI_NEG:
-    llvm_unreachable("unimplemented relocation type: R_AVR_LO8_LDI_NEG");
+    reloc8loldi(ins, -(targetVAddress+ref.addend()));
     break;
   case R_AVR_HI8_LDI_NEG:
-    llvm_unreachable("unimplemented relocation type: R_AVR_HI8_LDI_NEG");
+    reloc8hildi(ins, -(targetVAddress+ref.addend()));
     break;
   case R_AVR_HH8_LDI_NEG:
-    llvm_unreachable("unimplemented relocation type: R_AVR_HH8_LDI_NEG");
+    reloc8hhldi(ins, -(targetVAddress+ref.addend()));
     break;
   case R_AVR_LO8_LDI_PM:
     llvm_unreachable("unimplemented relocation type: R_AVR_LO8_LDI_PM");
