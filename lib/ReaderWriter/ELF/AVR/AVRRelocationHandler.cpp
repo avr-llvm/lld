@@ -59,7 +59,7 @@ static void reloc32(uint32_t &ins, uint64_t S, int64_t A) {
 /// 1111 01kk kkkk k001
 /// Where `k` is the relocated value - the relative jump target.
 static void relocpc7(uint32_t &ins, uint64_t P, uint64_t S, int64_t A) {
-  // mask = 11 1111 1000
+  // mask = 0000 0011 1111 1000
   const uint32_t mask = 0x3F8;
 
   int32_t result = S + A - P;
@@ -71,7 +71,7 @@ static void relocpc7(uint32_t &ins, uint64_t P, uint64_t S, int64_t A) {
 
 /// \brief R_AVR_13_PCREL
 static void relocpc13(uint32_t &ins, uint64_t P, uint64_t S, int64_t A) {
-  // mask = 1111 1111 1111
+  // mask = 0000 1111 1111 1111
   const uint32_t mask = 0xfff;
 
   int32_t result = S + A - P;
@@ -93,7 +93,16 @@ static void reloc8loldi(uint32_t &ins, uint64_t S, int64_t A) {
 
 /// \brief R_AVR_6
 static void reloc6(uint32_t &ins, uint64_t S, int64_t A) {
-  applyReloc(ins, S+A, 0x3f);
+  // mask = 0010 1100 0000 0111
+  const uint32_t mask = 0x2c07;
+
+  uint64_t target = S+A;
+
+  uint64_t result = (((target & (1<<5)) << 8) | // MSB
+                     ((target & (3<<3)) << 7) |
+                     ((target & 0x7)));         // LSB
+
+  applyReloc(ins, result, mask);
 }
 
 /// \brief R_AVR_8
