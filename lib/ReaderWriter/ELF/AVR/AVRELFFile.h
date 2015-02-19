@@ -177,80 +177,71 @@ private:
                               const ArrayRef<uint8_t> content) const {
     using namespace llvm::support;
     
-    llvm_unreachable("unimplemented");
-    return 0;
-    
-    /*const uint8_t *ap = content.data() + ri.r_offset;
-    switch (ri.getType(isAVR64EL())) {
+    const uint8_t *ap = content.data() + ri.r_offset;
+
+    switch (ri.getType(false)) {
     case llvm::ELF::R_AVR_32:
-    case llvm::ELF::R_AVR_GPREL32:
-    case llvm::ELF::R_AVR_PC32:
       return readAddend(ap, 0xffffffff, false);
-    case llvm::ELF::R_AVR_26:
-      return readAddend(ap, 0x3ffffff, false) << 2;
-    case llvm::ELF::R_AVR_HI16:
-    case llvm::ELF::R_AVR_LO16:
-    case llvm::ELF::R_AVR_GPREL16:
-    case llvm::ELF::R_AVR_GOT16:
-    case llvm::ELF::R_AVR_TLS_DTPREL_HI16:
-    case llvm::ELF::R_AVR_TLS_DTPREL_LO16:
-    case llvm::ELF::R_AVR_TLS_TPREL_HI16:
-    case llvm::ELF::R_AVR_TLS_TPREL_LO16:
+    case llvm::ELF::R_AVR_7_PCREL:
+    case llvm::ELF::R_AVR_LDS_STS_16:
+      return readAddend(ap, 0x7f, false);
+    case llvm::ELF::R_AVR_13_PCREL:
+      return readAddend(ap, 0xfff, false);
+    case llvm::ELF::R_AVR_16:
+    case llvm::ELF::R_AVR_16_PM:
+    case llvm::ELF::R_AVR_16_LDST:
       return readAddend(ap, 0xffff, false);
-    case llvm::ELF::R_MICROAVR_TLS_DTPREL_HI16:
-    case llvm::ELF::R_MICROAVR_TLS_DTPREL_LO16:
-    case llvm::ELF::R_MICROAVR_TLS_TPREL_HI16:
-    case llvm::ELF::R_MICROAVR_TLS_TPREL_LO16:
-      return readAddend(ap, 0xffff, true);
-    case llvm::ELF::R_MICROAVR_26_S1:
-      return readAddend(ap, 0x3ffffff, true) << 1;
-    case llvm::ELF::R_MICROAVR_HI16:
-    case llvm::ELF::R_MICROAVR_LO16:
-    case llvm::ELF::R_MICROAVR_GOT16:
-      return readAddend(ap, 0xffff, true);
-    case llvm::ELF::R_MICROAVR_PC16_S1:
-      return readAddend(ap, 0xffff, true) << 1;
-    case llvm::ELF::R_MICROAVR_PC7_S1:
-      return readAddend(ap, 0x7f, false) << 1;
-    case llvm::ELF::R_MICROAVR_PC10_S1:
-      return readAddend(ap, 0x3ff, false) << 1;
-    case llvm::ELF::R_MICROAVR_PC23_S2:
-      return readAddend(ap, 0x7fffff, true) << 2;
-    case llvm::ELF::R_AVR_CALL16:
-    case llvm::ELF::R_AVR_TLS_GD:
-    case llvm::ELF::R_AVR_TLS_LDM:
-    case llvm::ELF::R_AVR_TLS_GOTTPREL:
-    case llvm::ELF::R_MICROAVR_CALL16:
-    case llvm::ELF::R_MICROAVR_TLS_GD:
-    case llvm::ELF::R_MICROAVR_TLS_LDM:
-    case llvm::ELF::R_MICROAVR_TLS_GOTTPREL:
+    case llvm::ELF::R_AVR_PORT6:
+      return readAddend(ap, 0x3f, false);
+    case llvm::ELF::R_AVR_PORT5:
+      return readAddend(ap, 0x1f, false);
+    case llvm::ELF::R_AVR_LO8_LDI:
+    case llvm::ELF::R_AVR_HI8_LDI:
+    case llvm::ELF::R_AVR_HH8_LDI:
+    case llvm::ELF::R_AVR_LO8_LDI_NEG:
+    case llvm::ELF::R_AVR_HI8_LDI_NEG:
+    case llvm::ELF::R_AVR_HH8_LDI_NEG:
+    case llvm::ELF::R_AVR_LO8_LDI_PM:
+    case llvm::ELF::R_AVR_HI8_LDI_PM:
+    case llvm::ELF::R_AVR_HH8_LDI_PM:
+    case llvm::ELF::R_AVR_LO8_LDI_PM_NEG:
+    case llvm::ELF::R_AVR_HI8_LDI_PM_NEG:
+    case llvm::ELF::R_AVR_HH8_LDI_PM_NEG:
+    case llvm::ELF::R_AVR_MS8_LDI:
+    case llvm::ELF::R_AVR_MS8_LDI_NEG:
+    case llvm::ELF::R_AVR_LO8_LDI_GS:
+    case llvm::ELF::R_AVR_HI8_LDI_GS:
+    case llvm::ELF::R_AVR_8:
+    case llvm::ELF::R_AVR_8_LO8:
+    case llvm::ELF::R_AVR_8_HI8:
+    case llvm::ELF::R_AVR_8_HLO8:
+      return readAddend(ap, 0xff, false);
+    case llvm::ELF::R_AVR_CALL:
+      llvm_unreachable("addend R_AVR_CALL not implemented");
+      return 0;
+    case llvm::ELF::R_AVR_LDI:
+      llvm_unreachable("addend R_AVR_LDI not implemented");
+      return 0;
+    case llvm::ELF::R_AVR_6:
+    case llvm::ELF::R_AVR_6_ADIW:
+      return readAddend(ap, 0x3f, false);
+    case llvm::ELF::R_AVR_SYM_DIFF:
+      llvm_unreachable("addend R_AVR_SYM_DIFF not implemented");
       return 0;
     default:
+      llvm_unreachable("unimplemented relocation addend");
       return 0;
-    }*/
+    }
   }
 
   uint32_t getPairRelocation(const Elf_Rel &rel) {
-    
-    llvm_unreachable("unimplemented");
-    /*switch (rel.getType(isAVR64EL())) {
-    case llvm::ELF::R_AVR_HI16:
-      return llvm::ELF::R_AVR_LO16;
-    case llvm::ELF::R_AVR_GOT16:
-      if (isLocalBinding(rel))
-        return llvm::ELF::R_AVR_LO16;
-      break;
-    case llvm::ELF::R_MICROAVR_HI16:
-      return llvm::ELF::R_MICROAVR_LO16;
-    case llvm::ELF::R_MICROAVR_GOT16:
-      if (isLocalBinding(rel))
-        return llvm::ELF::R_MICROAVR_LO16;
-      break;
-    default:
+    // FIXME: implement
+
+    switch (rel.getType(false)) {
+      default:
       // Nothing to do.
-      break;
-    }*/
-    return llvm::ELF::R_AVR_NONE;
+      return llvm::ELF::R_AVR_NONE;
+    }
   }
 
   Elf_Rel_Iter findMatchingRelocation(uint32_t pairRelType, Elf_Rel_Iter rit,
