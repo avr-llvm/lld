@@ -33,6 +33,19 @@ template <size_t BITS, class T> inline T signExtend(T val) {
   return val;
 }
 
+/// \brief Adjusts a PC relative relocation.
+/// All of the PC relative relocations operate on 16-bit branching instructions.
+/// As a consequence, all PC relative relocation targets are offset by 16 bits.
+/// This function subtracts 2 from the target.
+///
+/// All PC relative relocations also need to be right-shifted by 1.
+///
+/// \note If a 32-bit PC relative relocation is added, 4 will need to be
+///       subtracted, and this function won't suffice.
+template<class T> inline T adjustPCRelTarget(T val) {
+    return (val - 2) >> 1;
+}
+
 /// \brief R_AVR_32
 /// local/external: word32 S + A (truncate)
 static void reloc32(uint32_t &ins, uint64_t S, int64_t A) {
@@ -40,15 +53,32 @@ static void reloc32(uint32_t &ins, uint64_t S, int64_t A) {
 }
 
 /// \brief R_AVR_7_PCREL
+/// The R_AVR_7_PCREL relocation is used on 16-bit branching instructions
+/// like BRNE:
+///
+/// 1111 01kk kkkk k001
+/// Where `k` is the relocated value - the relative jump target.
 static void relocpc7(uint32_t &ins, uint64_t P, uint64_t S, int64_t A) {
+  // mask = 11 1111 1000
+  const uint32_t mask = 0x3F8;
+
   int32_t result = S + A - P;
-  applyReloc(ins, result >> 1, 0x7f);
+
+  result = adjustPCRelTarget(result);
+
+  applyReloc(ins, result << 3, mask);
 }
 
 /// \brief R_AVR_13_PCREL
 static void relocpc13(uint32_t &ins, uint64_t P, uint64_t S, int64_t A) {
+  // mask = 1111 1111 1111
+  const uint32_t mask = 0xfff;
+
   int32_t result = S + A - P;
-  applyReloc(ins, result >> 1, 0x1fff);
+
+  result = adjustPCRelTarget(result);
+
+  applyReloc(ins, result, mask);
 }
 
 /// \brief R_AVR_16
@@ -95,6 +125,7 @@ template <class ELFT>
 std::error_code RelocationHandler<ELFT>::applyRelocation(
     ELFWriter &writer, llvm::FileOutputBuffer &buf, const lld::AtomLayout &atom,
     const Reference &ref) const {
+
   if (ref.kindNamespace() != lld::Reference::KindNamespace::ELF)
     return std::error_code();
   assert(ref.kindArch() == Reference::KindArch::AVR);
