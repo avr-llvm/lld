@@ -199,7 +199,7 @@ static void reloc8hi8(uint32_t &ins, uint64_t target) {
 }
 
 /// \brief R_AVR_8_HH8
-static void reloc8hh8(uint32_t &ins, uint64_t target) {
+static void reloc8hlo8(uint32_t &ins, uint64_t target) {
 
   // the target occupies a maximum of 24 bits
 
@@ -208,6 +208,25 @@ static void reloc8hh8(uint32_t &ins, uint64_t target) {
   target &= 0xff;
 
   reloc8(ins, target);
+}
+
+static void relocport6(uint32_t &ins, uint64_t target) {
+  // mask = 0000 0110 0000 1111
+  const uint32_t mask = 0x60;
+
+  uint32_t result = ((target & (3<<4)<<5) | // MSB
+                     (target & 0xf));
+
+  applyReloc(ins, result, mask);
+}
+
+static void relocport5(uint32_t &ins, uint64_t target) {
+  // mask = 0000|0000|1111|1000
+  const uint32_t mask = 0xf8;
+
+  uint64_t result = ((target & 0x1f)<<3);
+
+  applyReloc(ins, result, mask);
 }
 
 namespace {
@@ -333,7 +352,7 @@ std::error_code RelocationHandler<ELFT>::applyRelocation(
     reloc8hi8(ins, targetVAddress+ref.addend());
     break;
   case R_AVR_8_HLO8:
-    reloc8hh8(ins, targetVAddress+ref.addend());
+    reloc8hlo8(ins, targetVAddress+ref.addend());
     break;
   case R_AVR_SYM_DIFF:
     llvm_unreachable("unimplemented relocation type: R_AVR_SYM_DIFF");
@@ -345,10 +364,10 @@ std::error_code RelocationHandler<ELFT>::applyRelocation(
     llvm_unreachable("unimplemented relocation type: R_AVR_LDS_STS_16");
     break;
   case R_AVR_PORT6:
-    llvm_unreachable("unimplemented relocation type: R_AVR_PORT6");
+    relocport6(ins, targetVAddress+ref.addend());
     break;
   case R_AVR_PORT5:
-    llvm_unreachable("unimplemented relocation type: R_AVR_PORT5");
+    relocport5(ins, targetVAddress+ref.addend());
     break;
   default:
     return make_unhandled_reloc_error();
