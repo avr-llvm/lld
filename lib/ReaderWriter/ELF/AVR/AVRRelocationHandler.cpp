@@ -86,10 +86,41 @@ static void reloc16(uint32_t &ins, uint64_t S, int64_t A) {
   applyReloc(ins, S+A, 0xffff);
 }
 
+/// \brief Helper function to relocate an LDI instruction.
+static inline void relocldi(uint32_t &ins, uint32_t target) {
+  // mask = 0000 1111 0000 1111
+  const uint32_t mask = 0xf0f;
+
+  uint32_t result = (((target & (0xf<<4)) << 4) | // MSB
+                     (target & 0xf));             // LSB
+
+  applyReloc(ins, result, mask);
+}
+
 /// \brief R_AVR_LO8_LDI
 static void reloc8loldi(uint32_t &ins, uint64_t S, int64_t A) {
-  llvm_unreachable("R_AVR_LO8_LDI relocation not implemented");
+
+  // the target occupies a maximum of 16 bits
+  uint32_t target = S + A;
+
+  // take the low 8 bits of the target
+  target &= 0xff;
+
+  relocldi(ins, target);
 }
+
+/// \brief R_AVR_HI8_LDI
+static void reloc8hildi(uint32_t &ins, uint64_t S, int64_t A) {
+
+  // the target occupies a maximum of 16 bits
+  uint32_t target = S + A;
+
+  // take the high 8 bits of the target
+  target &= 0xff00>>8;
+
+  relocldi(ins, target);
+}
+
 
 /// \brief R_AVR_6
 static void reloc6(uint32_t &ins, uint64_t S, int64_t A) {
@@ -165,9 +196,6 @@ std::error_code RelocationHandler<ELFT>::applyRelocation(
   case R_AVR_32:
     reloc32(ins, targetVAddress, ref.addend());
     break;
-  case R_AVR_LO8_LDI:
-    reloc8loldi(ins, targetVAddress, ref.addend());
-    break;
   case R_AVR_7_PCREL:
     relocpc7(ins, relocVAddress, targetVAddress, ref.addend());
     break;
@@ -180,8 +208,11 @@ std::error_code RelocationHandler<ELFT>::applyRelocation(
   case R_AVR_16_PM:
     llvm_unreachable("unimplemented relocation type: R_AVR_16_PM");
     break;
+  case R_AVR_LO8_LDI:
+    reloc8loldi(ins, targetVAddress, ref.addend());
+    break;
   case R_AVR_HI8_LDI:
-    llvm_unreachable("unimplemented relocation type: R_AVR_HI8_LDI");
+    reloc8hildi(ins, targetVAddress, ref.addend());
     break;
   case R_AVR_HH8_LDI:
     llvm_unreachable("unimplemented relocation type: R_AVR_HH8_LDI");
