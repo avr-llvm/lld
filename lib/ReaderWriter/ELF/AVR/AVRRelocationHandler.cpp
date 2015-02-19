@@ -154,8 +154,8 @@ static void reloc6adiw(uint32_t &ins, uint64_t S, int64_t A) {
 
   uint64_t target = S+A;
 
-  uint64_t result = (((target && (3<<4)) << 2) | // MSB
-                     ((target && 0xf)));         // LSB
+  uint64_t result = (((target & (3<<4)) << 2) | // MSB
+                     ((target & 0xf)));         // LSB
 
   applyReloc(ins, result, mask);
 }
