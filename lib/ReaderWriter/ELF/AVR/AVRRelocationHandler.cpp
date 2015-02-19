@@ -27,17 +27,6 @@ static inline void applyReloc(uint32_t &ins, uint32_t result, uint32_t mask) {
   ins = (ins & ~mask) | (result & mask);
 }
 
-/// \brief Applies a basic relocation.
-/// A basic relocation is simply a 'len' bit absolute fixup.
-/// \param ins The unrelocated data.
-/// \param len The length of the relocation (in bits).
-static inline void applyBasicReloc(uint32_t &ins, uint64_t S, int64_t A, uint8_t len) {
-	// create a bitmask with 'len' number of 1's on the right
-    uint32_t mask = ~(0xffff << len);
-
-	applyReloc(ins, S + A, mask);
-}
-
 template <size_t BITS, class T> inline T signExtend(T val) {
   if (val & (T(1) << (BITS - 1)))
     val |= T(-1) << BITS;
@@ -46,21 +35,8 @@ template <size_t BITS, class T> inline T signExtend(T val) {
 
 /// \brief R_AVR_32
 /// local/external: word32 S + A (truncate)
-// FIXME: Once it is sure that applyBasicReloc does
-//        what it says, remove the assertions.
 static void reloc32(uint32_t &ins, uint64_t S, int64_t A) {
-  #ifndef NDEBUG
-  uint32_t prevValue = ins;
-  #endif
-
-  applyBasicReloc(ins, S, A, 32);
-
-  #ifndef NDEBUG
-  uint32_t tmp = prevValue;
   applyReloc(ins, S + A, 0xffffffff);
-
-  assert(tmp == ins);
-  #endif
 }
 
 /// \brief R_AVR_7_PCREL
@@ -77,7 +53,7 @@ static void relocpc13(uint32_t &ins, uint64_t P, uint64_t S, int64_t A) {
 
 /// \brief R_AVR_16
 static void reloc16(uint32_t &ins, uint64_t S, int64_t A) {
-  applyBasicReloc(ins, S, A, 16);
+  applyReloc(ins, S+A, 0xffff);
 }
 
 /// \brief R_AVR_LO8_LDI
@@ -87,12 +63,12 @@ static void reloc8loldi(uint32_t &ins, uint64_t S, int64_t A) {
 
 /// \brief R_AVR_6
 static void reloc6(uint32_t &ins, uint64_t S, int64_t A) {
-  applyBasicReloc(ins, S, A, 6);
+  applyReloc(ins, S+A, 0x3f);
 }
 
 /// \brief R_AVR_8
 static void reloc8(uint32_t &ins, uint64_t S, int64_t A) {
-  applyBasicReloc(ins, S, A, 8);
+  applyReloc(ins, S+A, 0xff);
 }
 
 namespace {
