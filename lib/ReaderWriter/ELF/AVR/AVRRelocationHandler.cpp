@@ -334,7 +334,7 @@ std::error_code RelocationHandler<ELFT>::applyRelocation(
     relocms8ldi(ins, targetVAddress+ref.addend());
     break;
   case R_AVR_MS8_LDI_NEG:
-    llvm_unreachable("unimplemented relocation type: R_AVR_MS8_LDI_NEG");
+    relocms8ldi(ins, -(targetVAddress+ref.addend()));
     break;
   case R_AVR_LO8_LDI_GS:
     llvm_unreachable("unimplemented relocation type: R_AVR_LO8_LDI_GS");
