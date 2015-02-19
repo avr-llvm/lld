@@ -122,6 +122,18 @@ static void reloc8hildi(uint32_t &ins, uint64_t S, int64_t A) {
   relocldi(ins, target);
 }
 
+/// \brief R_AVR_HH8_LDI
+static void reloc8hhldi(uint32_t &ins, uint64_t S, int64_t A) {
+
+  // the target occupies a maximum of 24 bits
+  uint32_t target = S + A;
+
+  // take the highest 8 bits of the target
+  target >>= 16;
+  target &= 0xff;
+
+  relocldi(ins, target);
+}
 
 /// \brief R_AVR_6
 static void reloc6(uint32_t &ins, uint64_t S, int64_t A) {
@@ -216,7 +228,7 @@ std::error_code RelocationHandler<ELFT>::applyRelocation(
     reloc8hildi(ins, targetVAddress, ref.addend());
     break;
   case R_AVR_HH8_LDI:
-    llvm_unreachable("unimplemented relocation type: R_AVR_HH8_LDI");
+    reloc8hhldi(ins, targetVAddress, ref.addend());
     break;
   case R_AVR_LO8_LDI_NEG:
     llvm_unreachable("unimplemented relocation type: R_AVR_LO8_LDI_NEG");
