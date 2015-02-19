@@ -291,7 +291,7 @@ std::error_code RelocationHandler<ELFT>::applyRelocation(
     llvm_unreachable("unimplemented relocation type: R_AVR_CALL");
     break;
   case R_AVR_LDI:
-    llvm_unreachable("unimplemented relocation type: R_AVR_LDI");
+    relocldi(ins, targetVAddress+ref.addend());
     break;
   case R_AVR_6:
     reloc6(ins, targetVAddress, ref.addend());
