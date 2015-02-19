@@ -116,7 +116,8 @@ static void reloc8hildi(uint32_t &ins, uint64_t S, int64_t A) {
   uint32_t target = S + A;
 
   // take the high 8 bits of the target
-  target &= 0xff00>>8;
+  target &= 0xff00;
+  target >>= 2;
 
   relocldi(ins, target);
 }
