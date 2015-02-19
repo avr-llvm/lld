@@ -105,6 +105,20 @@ static void reloc6(uint32_t &ins, uint64_t S, int64_t A) {
   applyReloc(ins, result, mask);
 }
 
+/// \brief R_AVR_6_ADIW
+/// A relocation for the ADIW/SBIW instructions.
+static void reloc6adiw(uint32_t &ins, uint64_t S, int64_t A) {
+  // mask = 0000 0000 1100 1111
+  const uint32_t mask = 0xcf;
+
+  uint64_t target = S+A;
+
+  uint64_t result = (((target && (3<<4)) << 2) | // MSB
+                     ((target && 0xf)));         // LSB
+
+  applyReloc(ins, result, mask);
+}
+
 /// \brief R_AVR_8
 static void reloc8(uint32_t &ins, uint64_t S, int64_t A) {
   applyReloc(ins, S+A, 0xff);
@@ -156,100 +170,100 @@ std::error_code RelocationHandler<ELFT>::applyRelocation(
     break;
   case R_AVR_7_PCREL:
     relocpc7(ins, relocVAddress, targetVAddress, ref.addend());
-	break;
+    break;
   case R_AVR_13_PCREL:
-	relocpc13(ins, relocVAddress, targetVAddress, ref.addend());
-	break;
+    relocpc13(ins, relocVAddress, targetVAddress, ref.addend());
+    break;
   case R_AVR_16:
-	reloc16(ins, targetVAddress, ref.addend());
-	break;
+    reloc16(ins, targetVAddress, ref.addend());
+    break;
   case R_AVR_16_PM:
-	llvm_unreachable("unimplemented relocation type: R_AVR_16_PM");
-	break;
+    llvm_unreachable("unimplemented relocation type: R_AVR_16_PM");
+    break;
   case R_AVR_HI8_LDI:
-	llvm_unreachable("unimplemented relocation type: R_AVR_HI8_LDI");
-	break;
+    llvm_unreachable("unimplemented relocation type: R_AVR_HI8_LDI");
+    break;
   case R_AVR_HH8_LDI:
-	llvm_unreachable("unimplemented relocation type: R_AVR_HH8_LDI");
-	break;
+    llvm_unreachable("unimplemented relocation type: R_AVR_HH8_LDI");
+    break;
   case R_AVR_LO8_LDI_NEG:
-	llvm_unreachable("unimplemented relocation type: R_AVR_LO8_LDI_NEG");
-	break;
+    llvm_unreachable("unimplemented relocation type: R_AVR_LO8_LDI_NEG");
+    break;
   case R_AVR_HI8_LDI_NEG:
-	llvm_unreachable("unimplemented relocation type: R_AVR_HI8_LDI_NEG");
-	break;
+    llvm_unreachable("unimplemented relocation type: R_AVR_HI8_LDI_NEG");
+    break;
   case R_AVR_HH8_LDI_NEG:
-	llvm_unreachable("unimplemented relocation type: R_AVR_HH8_LDI_NEG");
-	break;
+    llvm_unreachable("unimplemented relocation type: R_AVR_HH8_LDI_NEG");
+    break;
   case R_AVR_LO8_LDI_PM:
-	llvm_unreachable("unimplemented relocation type: R_AVR_LO8_LDI_PM");
-	break;
+    llvm_unreachable("unimplemented relocation type: R_AVR_LO8_LDI_PM");
+    break;
   case R_AVR_HI8_LDI_PM:
-	llvm_unreachable("unimplemented relocation type: R_AVR_HI8_LDI_PM");
-	break;
+    llvm_unreachable("unimplemented relocation type: R_AVR_HI8_LDI_PM");
+    break;
   case R_AVR_HH8_LDI_PM:
-	llvm_unreachable("unimplemented relocation type: R_AVR_HH8_LDI_PM");
-	break;
+    llvm_unreachable("unimplemented relocation type: R_AVR_HH8_LDI_PM");
+    break;
   case R_AVR_LO8_LDI_PM_NEG:
-	llvm_unreachable("unimplemented relocation type: R_AVR_LO8_LDI_PM_NEG");
-	break;
+    llvm_unreachable("unimplemented relocation type: R_AVR_LO8_LDI_PM_NEG");
+    break;
   case R_AVR_HI8_LDI_PM_NEG:
-	llvm_unreachable("unimplemented relocation type: R_AVR_HI8_LDI_PM_NEG");
-	break;
+    llvm_unreachable("unimplemented relocation type: R_AVR_HI8_LDI_PM_NEG");
+    break;
   case R_AVR_HH8_LDI_PM_NEG:
-	llvm_unreachable("unimplemented relocation type: R_AVR_HH8_LDI_PM_NEG");
-	break;
+    llvm_unreachable("unimplemented relocation type: R_AVR_HH8_LDI_PM_NEG");
+    break;
   case R_AVR_CALL:
-	llvm_unreachable("unimplemented relocation type: R_AVR_CALL");
-	break;
+    llvm_unreachable("unimplemented relocation type: R_AVR_CALL");
+    break;
   case R_AVR_LDI:
-	llvm_unreachable("unimplemented relocation type: R_AVR_LDI");
-	break;
+    llvm_unreachable("unimplemented relocation type: R_AVR_LDI");
+    break;
   case R_AVR_6:
-	reloc6(ins, targetVAddress, ref.addend());
-	break;
+    reloc6(ins, targetVAddress, ref.addend());
+    break;
   case R_AVR_6_ADIW:
-	llvm_unreachable("unimplemented relocation type: R_AVR_6_ADIW");
-	break;
+    reloc6adiw(ins, targetVAddress, ref.addend());
+    break;
   case R_AVR_MS8_LDI:
-	llvm_unreachable("unimplemented relocation type: R_AVR_MS8_LDI");
-	break;
+    llvm_unreachable("unimplemented relocation type: R_AVR_MS8_LDI");
+    break;
   case R_AVR_MS8_LDI_NEG:
-	llvm_unreachable("unimplemented relocation type: R_AVR_MS8_LDI_NEG");
-	break;
+    llvm_unreachable("unimplemented relocation type: R_AVR_MS8_LDI_NEG");
+    break;
   case R_AVR_LO8_LDI_GS:
-	llvm_unreachable("unimplemented relocation type: R_AVR_LO8_LDI_GS");
-	break;
+    llvm_unreachable("unimplemented relocation type: R_AVR_LO8_LDI_GS");
+    break;
   case R_AVR_HI8_LDI_GS:
-	llvm_unreachable("unimplemented relocation type: R_AVR_HI8_LDI_GS");
-	break;
+    llvm_unreachable("unimplemented relocation type: R_AVR_HI8_LDI_GS");
+    break;
   case R_AVR_8:
-	reloc8(ins, targetVAddress, ref.addend());
-	break;
+    reloc8(ins, targetVAddress, ref.addend());
+    break;
   case R_AVR_8_LO8:
-	llvm_unreachable("unimplemented relocation type: R_AVR_8_LO8");
-	break;
+    llvm_unreachable("unimplemented relocation type: R_AVR_8_LO8");
+    break;
   case R_AVR_8_HI8:
-	llvm_unreachable("unimplemented relocation type: R_AVR_8_HI8");
-	break;
+    llvm_unreachable("unimplemented relocation type: R_AVR_8_HI8");
+    break;
   case R_AVR_8_HLO8:
-	llvm_unreachable("unimplemented relocation type: R_AVR_8_HLO8");
-	break;
+    llvm_unreachable("unimplemented relocation type: R_AVR_8_HLO8");
+    break;
   case R_AVR_SYM_DIFF:
-	llvm_unreachable("unimplemented relocation type: R_AVR_SYM_DIFF");
-	break;
+    llvm_unreachable("unimplemented relocation type: R_AVR_SYM_DIFF");
+    break;
   case R_AVR_16_LDST:
-	llvm_unreachable("unimplemented relocation type: R_AVR_16_LDST");
-	break;
+    llvm_unreachable("unimplemented relocation type: R_AVR_16_LDST");
+    break;
   case R_AVR_LDS_STS_16:
-	llvm_unreachable("unimplemented relocation type: R_AVR_LDS_STS_16");
-	break;
+    llvm_unreachable("unimplemented relocation type: R_AVR_LDS_STS_16");
+    break;
   case R_AVR_PORT6:
-	llvm_unreachable("unimplemented relocation type: R_AVR_PORT6");
-	break;
+    llvm_unreachable("unimplemented relocation type: R_AVR_PORT6");
+    break;
   case R_AVR_PORT5:
-	llvm_unreachable("unimplemented relocation type: R_AVR_PORT5");
-	break;
+    llvm_unreachable("unimplemented relocation type: R_AVR_PORT5");
+    break;
   default:
     return make_unhandled_reloc_error();
   }
