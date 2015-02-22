@@ -16,3 +16,6 @@ before_script:
   - mv /tmp/lld llvm/tools/
   - cd llvm/
 
+script:
+  - ./configure --enable-targets=avr
+  - make -j 1
