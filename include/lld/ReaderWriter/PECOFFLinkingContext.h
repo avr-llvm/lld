@@ -84,7 +84,7 @@ public:
   };
 
   typedef bool (*ParseDirectives)(int, const char **, PECOFFLinkingContext &,
-                                  raw_ostream &, std::set<StringRef> *);
+                                  raw_ostream &);
 
   /// \brief Casting support
   static inline bool classof(const LinkingContext *info) { return true; }
@@ -257,11 +257,13 @@ public:
   bool addSectionRenaming(raw_ostream &diagnostics,
                           StringRef from, StringRef to);
 
-  StringRef getAlternateName(StringRef def) const;
-  const std::map<std::string, std::string> &alternateNames() {
-    return _alternateNames;
+  const std::set<std::string> &getAlternateNames(StringRef name) {
+    return _alternateNames[name];
   }
-  void setAlternateName(StringRef def, StringRef weak);
+
+  void addAlternateName(StringRef weak, StringRef def) {
+    _alternateNames[def].insert(weak);
+  }
 
   void addNoDefaultLib(StringRef path) {
     if (path.endswith_lower(".lib"))
@@ -423,7 +425,7 @@ private:
   std::unique_ptr<Writer> _writer;
 
   // A map for weak aliases.
-  std::map<std::string, std::string> _alternateNames;
+  std::map<std::string, std::set<std::string>> _alternateNames;
 
   // A map for section renaming. For example, if there is an entry in the map
   // whose value is .rdata -> .text, the section contens of .rdata will be

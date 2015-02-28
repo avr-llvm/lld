@@ -31,12 +31,9 @@ bool Resolver::handleFile(const File &file) {
   bool undefAdded = false;
   for (const DefinedAtom *atom : file.defined())
     doDefinedAtom(*atom);
-  for (const UndefinedAtom *atom : file.undefined()) {
-    if (doUndefinedAtom(*atom)) {
+  for (const UndefinedAtom *atom : file.undefined())
+    if (doUndefinedAtom(*atom))
       undefAdded = true;
-      maybePreloadArchiveMember(atom->name());
-    }
-  }
   for (const SharedLibraryAtom *atom : file.sharedLibrary())
     doSharedLibraryAtom(*atom);
   for (const AbsoluteAtom *atom : file.absolute())
@@ -76,12 +73,13 @@ void Resolver::forEachUndefines(bool searchForOverrides,
 bool Resolver::handleArchiveFile(const File &file) {
   const ArchiveLibraryFile *archiveFile = cast<ArchiveLibraryFile>(&file);
   bool searchForOverrides =
-      _context.searchArchivesToOverrideTentativeDefinitions();
+      _ctx.searchArchivesToOverrideTentativeDefinitions();
   bool undefAdded = false;
   forEachUndefines(searchForOverrides,
                    [&](StringRef undefName, bool dataSymbolOnly) {
     if (const File *member = archiveFile->find(undefName, dataSymbolOnly)) {
-      member->setOrdinal(_context.getNextOrdinalAndIncrement());
+      member->setOrdinal(_ctx.getNextOrdinalAndIncrement());
+      const_cast<File *>(member)->beforeLink();
       undefAdded = handleFile(*member) || undefAdded;
     }
   });
@@ -93,7 +91,7 @@ void Resolver::handleSharedLibrary(const File &file) {
   const SharedLibraryFile *sharedLibrary = cast<SharedLibraryFile>(&file);
   handleFile(*sharedLibrary);
   bool searchForOverrides =
-      _context.searchSharedLibrariesToOverrideTentativeDefinitions();
+      _ctx.searchSharedLibrariesToOverrideTentativeDefinitions();
   forEachUndefines(searchForOverrides,
                    [&](StringRef undefName, bool dataSymbolOnly) {
     if (const SharedLibraryAtom *atom =
@@ -133,7 +131,7 @@ void Resolver::maybeAddSectionGroupOrGnuLinkOnce(const DefinedAtom &atom) {
 
   if (!isFirstTime) {
     // If duplicate symbols are allowed, select the first group.
-    if (_context.getAllowDuplicates())
+    if (_ctx.getAllowDuplicates())
       return;
     auto *prevGroup = dyn_cast<DefinedAtom>(_symbolTable.findGroup(atom.name()));
     assert(prevGroup &&
@@ -190,7 +188,7 @@ void Resolver::doDefinedAtom(const DefinedAtom &atom) {
   }
 
   // An atom that should never be dead-stripped is a dead-strip root.
-  if (_context.deadStrip() && atom.deadStrip() == DefinedAtom::deadStripNever) {
+  if (_ctx.deadStrip() && atom.deadStrip() == DefinedAtom::deadStripNever) {
     _deadStripRoots.insert(&atom);
   }
 }
@@ -232,21 +230,10 @@ void Resolver::addAtoms(const std::vector<const DefinedAtom *> &newAtoms) {
     doDefinedAtom(*newAtom);
 }
 
-// Instantiate an archive file member if there's a file containing a
-// defined symbol for a given symbol name. Instantiation is done in a
-// different worker thread and has no visible side effect.
-void Resolver::maybePreloadArchiveMember(StringRef sym) {
-  auto it = _archiveMap.find(sym);
-  if (it == _archiveMap.end())
-    return;
-  ArchiveLibraryFile *archive = it->second;
-  archive->preload(_context.getTaskGroup(), sym);
-}
-
 // Returns true if at least one of N previous files has created an
 // undefined symbol.
 bool Resolver::undefinesAdded(int begin, int end) {
-  std::vector<std::unique_ptr<Node>> &inputs = _context.getNodes();
+  std::vector<std::unique_ptr<Node>> &inputs = _ctx.getNodes();
   for (int i = begin; i < end; ++i)
     if (FileNode *node = dyn_cast<FileNode>(inputs[i].get()))
       if (_newUndefinesAdded[node->getFile()])
@@ -255,7 +242,7 @@ bool Resolver::undefinesAdded(int begin, int end) {
 }
 
 File *Resolver::getFile(int &index) {
-  std::vector<std::unique_ptr<Node>> &inputs = _context.getNodes();
+  std::vector<std::unique_ptr<Node>> &inputs = _ctx.getNodes();
   if ((size_t)index >= inputs.size())
     return nullptr;
   if (GroupEnd *group = dyn_cast<GroupEnd>(inputs[index].get())) {
@@ -275,7 +262,7 @@ File *Resolver::getFile(int &index) {
 
 // Make a map of Symbol -> ArchiveFile.
 void Resolver::makePreloadArchiveMap() {
-  std::vector<std::unique_ptr<Node>> &nodes = _context.getNodes();
+  std::vector<std::unique_ptr<Node>> &nodes = _ctx.getNodes();
   for (int i = nodes.size() - 1; i >= 0; --i)
     if (auto *fnode = dyn_cast<FileNode>(nodes[i].get()))
       if (auto *archive = dyn_cast<ArchiveLibraryFile>(fnode->getFile()))
@@ -283,7 +270,7 @@ void Resolver::makePreloadArchiveMap() {
           _archiveMap[sym] = archive;
 }
 
-// Keep adding atoms until _context.getNextFile() returns an error. This
+// Keep adding atoms until _ctx.getNextFile() returns an error. This
 // function is where undefined atoms are resolved.
 bool Resolver::resolveUndefines() {
   ScopedTask task(getDefaultDomain(), "resolveUndefines");
@@ -309,17 +296,17 @@ bool Resolver::resolveUndefines() {
         break;
       seen.insert(file);
       assert(!file->hasOrdinal());
-      file->setOrdinal(_context.getNextOrdinalAndIncrement());
+      file->setOrdinal(_ctx.getNextOrdinalAndIncrement());
       undefAdded = handleFile(*file);
       break;
     case File::kindArchiveLibrary:
       if (!file->hasOrdinal())
-        file->setOrdinal(_context.getNextOrdinalAndIncrement());
+        file->setOrdinal(_ctx.getNextOrdinalAndIncrement());
       undefAdded = handleArchiveFile(*file);
       break;
     case File::kindSharedLibrary:
       if (!file->hasOrdinal())
-        file->setOrdinal(_context.getNextOrdinalAndIncrement());
+        file->setOrdinal(_ctx.getNextOrdinalAndIncrement());
       handleSharedLibrary(*file);
       break;
     }
@@ -378,26 +365,31 @@ static bool isBackref(const Reference *ref) {
 void Resolver::deadStripOptimize() {
   ScopedTask task(getDefaultDomain(), "deadStripOptimize");
   // only do this optimization with -dead_strip
-  if (!_context.deadStrip())
+  if (!_ctx.deadStrip())
     return;
 
   // Some type of references prevent referring atoms to be dead-striped.
   // Make a reverse map of such references before traversing the graph.
-  for (const Atom *atom : _atoms)
+  // While traversing the list of atoms, mark AbsoluteAtoms as live
+  // in order to avoid reclaim.
+  for (const Atom *atom : _atoms) {
     if (const DefinedAtom *defAtom = dyn_cast<DefinedAtom>(atom))
       for (const Reference *ref : *defAtom)
         if (isBackref(ref))
           _reverseRef[ref->target()].insert(atom);
+    if (const AbsoluteAtom *absAtom = dyn_cast<AbsoluteAtom>(atom))
+      markLive(absAtom);
+  }
 
   // By default, shared libraries are built with all globals as dead strip roots
-  if (_context.globalsAreDeadStripRoots())
+  if (_ctx.globalsAreDeadStripRoots())
     for (const Atom *atom : _atoms)
       if (const DefinedAtom *defAtom = dyn_cast<DefinedAtom>(atom))
         if (defAtom->scope() == DefinedAtom::scopeGlobal)
           _deadStripRoots.insert(defAtom);
 
   // Or, use list of names that are dead strip roots.
-  for (const StringRef &name : _context.deadStripRoots()) {
+  for (const StringRef &name : _ctx.deadStripRoots()) {
     const Atom *symAtom = _symbolTable.findByName(name);
     assert(symAtom);
     _deadStripRoots.insert(symAtom);
@@ -418,7 +410,7 @@ void Resolver::deadStripOptimize() {
 bool Resolver::checkUndefines() {
   // build vector of remaining undefined symbols
   std::vector<const UndefinedAtom *> undefinedAtoms = _symbolTable.undefines();
-  if (_context.deadStrip()) {
+  if (_ctx.deadStrip()) {
     // When dead code stripping, we don't care if dead atoms are undefined.
     undefinedAtoms.erase(
         std::remove_if(undefinedAtoms.begin(), undefinedAtoms.end(),
@@ -430,32 +422,30 @@ bool Resolver::checkUndefines() {
   if (!undefinedAtoms.empty()) {
     // FIXME: need diagnostics interface for writing error messages
     bool foundUndefines = false;
-    for (const UndefinedAtom *undefAtom : undefinedAtoms) {
-      const File &f = undefAtom->file();
-
+    for (const UndefinedAtom *undef : undefinedAtoms) {
       // Skip over a weak symbol.
-      if (undefAtom->canBeNull() != UndefinedAtom::canBeNullNever)
+      if (undef->canBeNull() != UndefinedAtom::canBeNullNever)
         continue;
 
       // If this is a library and undefined symbols are allowed on the
       // target platform, skip over it.
-      if (isa<SharedLibraryFile>(f) && _context.allowShlibUndefines())
+      if (isa<SharedLibraryFile>(undef->file()) && _ctx.allowShlibUndefines())
         continue;
 
       // If the undefine is coalesced away, skip over it.
-      if (_symbolTable.isCoalescedAway(undefAtom))
+      if (_symbolTable.isCoalescedAway(undef))
         continue;
 
       // Seems like this symbol is undefined. Warn that.
       foundUndefines = true;
-      if (_context.printRemainingUndefines()) {
-        llvm::errs() << "Undefined symbol: " << undefAtom->file().path()
-                     << ": " << _context.demangle(undefAtom->name())
+      if (_ctx.printRemainingUndefines()) {
+        llvm::errs() << "Undefined symbol: " << undef->file().path()
+                     << ": " << _ctx.demangle(undef->name())
                      << "\n";
       }
     }
     if (foundUndefines) {
-      if (_context.printRemainingUndefines())
+      if (_ctx.printRemainingUndefines())
         llvm::errs() << "symbol(s) not found\n";
       return true;
     }
@@ -479,7 +469,7 @@ bool Resolver::resolve() {
   updateReferences();
   deadStripOptimize();
   if (checkUndefines())
-    if (!_context.allowRemainingUndefines())
+    if (!_ctx.allowRemainingUndefines())
       return false;
   removeCoalescedAwayAtoms();
   _result->addAtoms(_atoms);

@@ -11,29 +11,7 @@
 #define LLD_READER_WRITER_ELF_FILE_H
 
 #include "Atoms.h"
-#include "lld/Core/File.h"
-#include "lld/Core/Reference.h"
-#include "lld/ReaderWriter/ELFLinkingContext.h"
-#include "llvm/ADT/ArrayRef.h"
-#include "llvm/ADT/SmallString.h"
-#include "llvm/ADT/StringRef.h"
-#include "llvm/ADT/StringSet.h"
-#include "llvm/ADT/StringMap.h"
-#include "llvm/Object/ELF.h"
-#include "llvm/Object/ObjectFile.h"
-#include "llvm/Support/Allocator.h"
-#include "llvm/Support/Casting.h"
-#include "llvm/Support/ELF.h"
-#include "llvm/Support/Endian.h"
-#include "llvm/Support/ErrorHandling.h"
-#include "llvm/Support/ErrorOr.h"
-#include "llvm/Support/MathExtras.h"
-#include "llvm/Support/Memory.h"
-#include "llvm/Support/MemoryBuffer.h"
-#include "llvm/Support/Path.h"
-#include "llvm/Support/raw_ostream.h"
 #include <map>
-#include <system_error>
 #include <unordered_map>
 
 namespace lld {
@@ -50,6 +28,7 @@ template <class ELFT> class ELFFile : public File {
   typedef typename llvm::object::ELFFile<ELFT>::Elf_Sym_Iter Elf_Sym_Iter;
   typedef typename llvm::object::ELFFile<ELFT>::Elf_Rela_Iter Elf_Rela_Iter;
   typedef typename llvm::object::ELFFile<ELFT>::Elf_Rel_Iter Elf_Rel_Iter;
+  typedef typename llvm::object::ELFFile<ELFT>::Elf_Word Elf_Word;
 
   // A Map is used to hold the atoms that have been divided up
   // after reading the section that contains Merge String attributes
@@ -168,8 +147,24 @@ public:
     return _absoluteAtoms;
   }
 
-  Atom *findAtom(const Elf_Sym *symbol) {
-    return _symbolToAtomMapping.lookup(symbol);
+  Atom *findAtom(const Elf_Sym *sourceSymbol, const Elf_Sym *targetSymbol) {
+    // All references to atoms inside a group are through undefined atoms.
+    Atom *targetAtom = _symbolToAtomMapping.lookup(targetSymbol);
+    StringRef targetSymbolName = targetAtom->name();
+    if (targetAtom->definition() != Atom::definitionRegular)
+      return targetAtom;
+    if ((llvm::dyn_cast<DefinedAtom>(targetAtom))->scope() ==
+        DefinedAtom::scopeTranslationUnit)
+      return targetAtom;
+    if (!redirectReferenceUsingUndefAtom(sourceSymbol, targetSymbol))
+      return targetAtom;
+    auto undefForGroupchild = _undefAtomsForGroupChild.find(targetSymbolName);
+    if (undefForGroupchild != _undefAtomsForGroupChild.end())
+      return undefForGroupchild->getValue();
+    auto undefGroupChildAtom =
+        new (_readerStorage) SimpleUndefinedAtom(*this, targetSymbolName);
+    _undefinedAtoms._atoms.push_back(undefGroupChildAtom);
+    return (_undefAtomsForGroupChild[targetSymbolName] = undefGroupChildAtom);
   }
 
 protected:
@@ -181,12 +176,12 @@ protected:
   std::error_code doParse() override;
 
   /// \brief Iterate over Elf_Rela relocations list and create references.
-  virtual void createRelocationReferences(const Elf_Sym &symbol,
+  virtual void createRelocationReferences(const Elf_Sym *symbol,
                                           ArrayRef<uint8_t> content,
                                           range<Elf_Rela_Iter> rels);
 
   /// \brief Iterate over Elf_Rel relocations list and create references.
-  virtual void createRelocationReferences(const Elf_Sym &symbol,
+  virtual void createRelocationReferences(const Elf_Sym *symbol,
                                           ArrayRef<uint8_t> symContent,
                                           ArrayRef<uint8_t> secContent,
                                           range<Elf_Rel_Iter> rels);
@@ -258,6 +253,19 @@ protected:
     return shdr && (shdr->sh_type == llvm::ELF::SHT_PROGBITS) && syms.empty();
   }
 
+  /// Handle creation of atoms for .gnu.linkonce sections.
+  std::error_code handleGnuLinkOnceSection(
+      StringRef sectionName,
+      llvm::StringMap<std::vector<ELFDefinedAtom<ELFT> *>> &atomsForSection,
+      const Elf_Shdr *shdr);
+
+  // Handle Section groups/COMDAT scetions.
+  std::error_code handleSectionGroup(
+      StringRef signature, StringRef groupSectionName,
+      llvm::StringMap<std::vector<ELFDefinedAtom<ELFT> *>> &atomsForSection,
+      llvm::DenseMap<const Elf_Shdr *, std::vector<StringRef>> &comdatSections,
+      const Elf_Shdr *shdr);
+
   /// Process the Undefined symbol and create an atom for it.
   ErrorOr<ELFUndefinedAtom<ELFT> *>
   handleUndefinedSymbol(StringRef symName, const Elf_Sym *sym) {
@@ -284,6 +292,21 @@ protected:
   virtual bool isCommonSymbol(const Elf_Sym *symbol) const {
     return symbol->getType() == llvm::ELF::STT_COMMON ||
            symbol->st_shndx == llvm::ELF::SHN_COMMON;
+  }
+
+  /// Returns true if the section is a gnulinkonce section.
+  bool isGnuLinkOnceSection(StringRef sectionName) const {
+    return sectionName.startswith(".gnu.linkonce.");
+  }
+
+  /// Returns true if the section is a COMDAT group section.
+  bool isGroupSection(const Elf_Shdr *shdr) const {
+    return (shdr->sh_type == llvm::ELF::SHT_GROUP);
+  }
+
+  /// Returns true if the section is a member of some group.
+  bool isSectionMemberOfGroup(const Elf_Shdr *shdr) const {
+    return (shdr->sh_flags & llvm::ELF::SHF_GROUP);
   }
 
   /// Returns correct st_value for the symbol depending on the architecture.
@@ -333,6 +356,27 @@ protected:
     return mergeAtom;
   }
 
+  /// References to the sections comprising a group, from sections
+  /// outside the group, must be made via global UNDEF symbols,
+  /// referencing global symbols defined as addresses in the group
+  /// sections. They may not reference local symbols for addresses in
+  /// the group's sections, including section symbols.
+  /// ABI Doc : https://mentorembedded.github.io/cxx-abi/abi/prop-72-comdat.html
+  /// Does the atom need to be redirected using a separate undefined atom?
+  bool redirectReferenceUsingUndefAtom(const Elf_Sym *sourceSymbol,
+                                       const Elf_Sym *targetSymbol) const;
+
+  void addReferenceToSymbol(const ELFReference<ELFT> *r, const Elf_Sym *sym) {
+    _referenceToSymbol[r] = sym;
+  }
+
+  const Elf_Sym *findSymbolForReference(const ELFReference<ELFT> *r) const {
+    auto elfReferenceToSymbol = _referenceToSymbol.find(r);
+    if (elfReferenceToSymbol != _referenceToSymbol.end())
+      return elfReferenceToSymbol->second;
+    return nullptr;
+  }
+
   llvm::BumpPtrAllocator _readerStorage;
   std::unique_ptr<llvm::object::ELFFile<ELFT> > _objFile;
   atom_collection_vector<DefinedAtom> _definedAtoms;
@@ -350,6 +394,13 @@ protected:
   std::unordered_map<StringRef, range<Elf_Rel_Iter>> _relocationReferences;
   std::vector<ELFReference<ELFT> *> _references;
   llvm::DenseMap<const Elf_Sym *, Atom *> _symbolToAtomMapping;
+  llvm::DenseMap<const ELFReference<ELFT> *, const Elf_Sym *>
+  _referenceToSymbol;
+  // Group child atoms have a pair corresponding to the signature and the
+  // section header of the section that was used for generating the signature.
+  llvm::DenseMap<const Elf_Sym *, std::pair<StringRef, const Elf_Shdr *>>
+      _groupChild;
+  llvm::StringMap<Atom *> _undefAtomsForGroupChild;
 
   /// \brief Atoms that are created for a section that has the merge property
   /// set
@@ -368,7 +419,7 @@ protected:
   /// \brief the cached options relevant while reading the ELF File
   bool _doStringsMerge;
 
-  /// \brief Is --wrap on ?
+  /// \brief Is --wrap on?
   bool _useWrap;
 
   /// \brief The LinkingContext.
@@ -625,6 +676,15 @@ std::error_code ELFFile<ELFT>::createSymbolsFromAtomizableSections() {
 }
 
 template <class ELFT> std::error_code ELFFile<ELFT>::createAtoms() {
+  // Holds all the atoms that are part of the section. They are the targets of
+  // the kindGroupChild reference.
+  llvm::StringMap<std::vector<ELFDefinedAtom<ELFT> *>> atomsForSection;
+  // group sections have a mapping of the section header to the
+  // signature/section.
+  llvm::DenseMap<const Elf_Shdr *, std::pair<StringRef, StringRef>>
+      groupSections;
+  // Contains a list of comdat sections for a group.
+  llvm::DenseMap<const Elf_Shdr *, std::vector<StringRef>> comdatSections;
   for (auto &i : _sectionSymbols) {
     const Elf_Shdr *section = i.first;
     std::vector<Elf_Sym_Iter> &symbols = i.second;
@@ -643,11 +703,59 @@ template <class ELFT> std::error_code ELFFile<ELFT>::createAtoms() {
     if (std::error_code ec = sectionContents.getError())
       return ec;
 
+    bool addAtoms = true;
+
+    // A section of type SHT_GROUP defines a grouping of sections. The name of a
+    // symbol from one of the containing object's symbol tables provides a
+    // signature
+    // for the section group. The section header of the SHT_GROUP section
+    // specifies
+    // the identifying symbol entry, as described : the sh_link member contains
+    // the section header index of the symbol table section that contains the
+    // entry.
+    // The sh_info member contains the symbol table index of the identifying
+    // entry.
+    // The sh_flags member of the section header contains 0. The name of the
+    // section
+    // (sh_name) is not specified.
+    if (isGroupSection(section)) {
+      const Elf_Word *groupMembers =
+          reinterpret_cast<const Elf_Word *>(sectionContents->data());
+      const long count = (section->sh_size) / sizeof(Elf_Word);
+      for (int i = 1; i < count; i++) {
+        const Elf_Shdr *sHdr = _objFile->getSection(groupMembers[i]);
+        ErrorOr<StringRef> sectionName = _objFile->getSectionName(sHdr);
+        if (std::error_code ec = sectionName.getError())
+          return ec;
+        comdatSections[section].push_back(*sectionName);
+      }
+      const Elf_Sym *symbol = _objFile->getSymbol(section->sh_info);
+      const Elf_Shdr *symtab = _objFile->getSection(section->sh_link);
+      ErrorOr<StringRef> symbolName = _objFile->getSymbolName(symtab, symbol);
+      if (std::error_code ec = symbolName.getError())
+        return ec;
+      groupSections.insert(
+          std::make_pair(section, std::make_pair(*symbolName, *sectionName)));
+      continue;
+    }
+
+    if (isGnuLinkOnceSection(*sectionName)) {
+      groupSections.insert(
+          std::make_pair(section, std::make_pair(*sectionName, *sectionName)));
+      addAtoms = false;
+    }
+
+    if (isSectionMemberOfGroup(section))
+      addAtoms = false;
+
     if (handleSectionWithNoSymbols(section, symbols)) {
       ELFDefinedAtom<ELFT> *newAtom =
           createSectionAtom(section, *sectionName, *sectionContents);
-      _definedAtoms._atoms.push_back(newAtom);
       newAtom->setOrdinal(++_ordinal);
+      if (addAtoms)
+        _definedAtoms._atoms.push_back(newAtom);
+      else
+        atomsForSection[*sectionName].push_back(newAtom);
       continue;
     }
 
@@ -695,8 +803,11 @@ template <class ELFT> std::error_code ELFFile<ELFT>::createAtoms() {
           auto definedMergeAtom = handleDefinedSymbol(
               symbolName, *sectionName, &**si, section, symbolData,
               _references.size(), _references.size(), _references);
-          _definedAtoms._atoms.push_back(*definedMergeAtom);
           (*definedMergeAtom)->setOrdinal(++_ordinal);
+          if (addAtoms)
+            _definedAtoms._atoms.push_back(*definedMergeAtom);
+          else
+            atomsForSection[*sectionName].push_back(*definedMergeAtom);
         }
         continue;
       }
@@ -742,16 +853,93 @@ template <class ELFT> std::error_code ELFFile<ELFT>::createAtoms() {
       // is a weak atom.
       previousAtom = anonAtom ? anonAtom : newAtom;
 
-      _definedAtoms._atoms.push_back(newAtom);
+      if (addAtoms)
+        _definedAtoms._atoms.push_back(newAtom);
+      else
+        atomsForSection[*sectionName].push_back(newAtom);
+
       _symbolToAtomMapping.insert(std::make_pair(&*symbol, newAtom));
       if (anonAtom) {
         anonAtom->setOrdinal(++_ordinal);
-        _definedAtoms._atoms.push_back(anonAtom);
+        if (addAtoms)
+          _definedAtoms._atoms.push_back(anonAtom);
+        else
+          atomsForSection[*sectionName].push_back(anonAtom);
       }
     }
   }
 
+  // Iterate over all the group sections to create parent atoms pointing to
+  // group-child atoms.
+  for (auto &sect : groupSections) {
+    StringRef signature = sect.second.first;
+    StringRef groupSectionName = sect.second.second;
+    if (isGnuLinkOnceSection(signature))
+      handleGnuLinkOnceSection(signature, atomsForSection, sect.first);
+    else if (isGroupSection(sect.first))
+      handleSectionGroup(signature, groupSectionName, atomsForSection,
+                         comdatSections, sect.first);
+  }
+
   updateReferences();
+  return std::error_code();
+}
+
+template <class ELFT>
+std::error_code ELFFile<ELFT>::handleGnuLinkOnceSection(
+    StringRef signature,
+    llvm::StringMap<std::vector<ELFDefinedAtom<ELFT> *>> &atomsForSection,
+    const Elf_Shdr *shdr) {
+  // TODO: Check for errors.
+  unsigned int referenceStart = _references.size();
+  std::vector<ELFReference<ELFT> *> refs;
+  for (auto ha : atomsForSection[signature]) {
+    _groupChild[ha->symbol()] = std::make_pair(signature, shdr);
+    ELFReference<ELFT> *ref =
+        new (_readerStorage) ELFReference<ELFT>(lld::Reference::kindGroupChild);
+    ref->setTarget(ha);
+    refs.push_back(ref);
+  }
+  atomsForSection[signature].clear();
+  // Create a gnu linkonce atom.
+  auto gnuLinkOnceAtom = handleDefinedSymbol(
+      signature, signature, nullptr, shdr, ArrayRef<uint8_t>(), referenceStart,
+      _references.size(), _references);
+  (*gnuLinkOnceAtom)->setOrdinal(++_ordinal);
+  _definedAtoms._atoms.push_back(*gnuLinkOnceAtom);
+  for (auto reference : refs)
+    (*gnuLinkOnceAtom)->addReference(reference);
+  return std::error_code();
+}
+
+template <class ELFT>
+std::error_code ELFFile<ELFT>::handleSectionGroup(
+    StringRef signature, StringRef groupSectionName,
+    llvm::StringMap<std::vector<ELFDefinedAtom<ELFT> *>> &atomsForSection,
+    llvm::DenseMap<const Elf_Shdr *, std::vector<StringRef>> &comdatSections,
+    const Elf_Shdr *shdr) {
+  // TODO: Check for errors.
+  unsigned int referenceStart = _references.size();
+  std::vector<ELFReference<ELFT> *> refs;
+  auto sectionNamesInGroup = comdatSections[shdr];
+  for (auto sectionName : sectionNamesInGroup) {
+    for (auto ha : atomsForSection[sectionName]) {
+      _groupChild[ha->symbol()] = std::make_pair(signature, shdr);
+      ELFReference<ELFT> *ref = new (_readerStorage)
+          ELFReference<ELFT>(lld::Reference::kindGroupChild);
+      ref->setTarget(ha);
+      refs.push_back(ref);
+    }
+    atomsForSection[sectionName].clear();
+  }
+  // Create a gnu linkonce atom.
+  auto sectionGroupAtom = handleDefinedSymbol(
+      signature, groupSectionName, nullptr, shdr, ArrayRef<uint8_t>(),
+      referenceStart, _references.size(), _references);
+  (*sectionGroupAtom)->setOrdinal(++_ordinal);
+  _definedAtoms._atoms.push_back(*sectionGroupAtom);
+  for (auto reference : refs)
+    (*sectionGroupAtom)->addReference(reference);
   return std::error_code();
 }
 
@@ -798,12 +986,12 @@ ELFDefinedAtom<ELFT> *ELFFile<ELFT>::createDefinedAtomAndAssignRelocations(
   // Add Rela (those with r_addend) references:
   auto rari = _relocationAddendReferences.find(sectionName);
   if (rari != _relocationAddendReferences.end())
-    createRelocationReferences(*symbol, symContent, rari->second);
+    createRelocationReferences(symbol, symContent, rari->second);
 
   // Add Rel references.
   auto rri = _relocationReferences.find(sectionName);
   if (rri != _relocationReferences.end())
-    createRelocationReferences(*symbol, symContent, secContent, rri->second);
+    createRelocationReferences(symbol, symContent, secContent, rri->second);
 
   // Create the DefinedAtom and add it to the list of DefinedAtoms.
   return *handleDefinedSymbol(symbolName, sectionName, symbol, section,
@@ -812,37 +1000,41 @@ ELFDefinedAtom<ELFT> *ELFFile<ELFT>::createDefinedAtomAndAssignRelocations(
 }
 
 template <class ELFT>
-void ELFFile<ELFT>::createRelocationReferences(const Elf_Sym &symbol,
+void ELFFile<ELFT>::createRelocationReferences(const Elf_Sym *symbol,
                                                ArrayRef<uint8_t> content,
                                                range<Elf_Rela_Iter> rels) {
   bool isMips64EL = _objFile->isMips64EL();
-  const auto symValue = getSymbolValue(&symbol);
+  const auto symValue = getSymbolValue(symbol);
   for (const auto &rel : rels) {
     if (rel.r_offset < symValue ||
         symValue + content.size() <= rel.r_offset)
       continue;
-    _references.push_back(new (_readerStorage) ELFReference<ELFT>(
-        &rel, rel.r_offset - symValue, kindArch(),
-        rel.getType(isMips64EL), rel.getSymbol(isMips64EL)));
+    auto elfRelocation = new (_readerStorage)
+        ELFReference<ELFT>(&rel, rel.r_offset - symValue, kindArch(),
+                           rel.getType(isMips64EL), rel.getSymbol(isMips64EL));
+    addReferenceToSymbol(elfRelocation, symbol);
+    _references.push_back(elfRelocation);
   }
 }
 
 template <class ELFT>
-void ELFFile<ELFT>::createRelocationReferences(const Elf_Sym &symbol,
+void ELFFile<ELFT>::createRelocationReferences(const Elf_Sym *symbol,
                                                ArrayRef<uint8_t> symContent,
                                                ArrayRef<uint8_t> secContent,
                                                range<Elf_Rel_Iter> rels) {
   bool isMips64EL = _objFile->isMips64EL();
-  const auto symValue = getSymbolValue(&symbol);
+  const auto symValue = getSymbolValue(symbol);
   for (const auto &rel : rels) {
     if (rel.r_offset < symValue ||
         symValue + symContent.size() <= rel.r_offset)
       continue;
-    _references.push_back(new (_readerStorage) ELFReference<ELFT>(
-        rel.r_offset - symValue, kindArch(),
-        rel.getType(isMips64EL), rel.getSymbol(isMips64EL)));
+    auto elfRelocation = new (_readerStorage)
+        ELFReference<ELFT>(rel.r_offset - symValue, kindArch(),
+                           rel.getType(isMips64EL), rel.getSymbol(isMips64EL));
     int32_t addend = *(symContent.data() + rel.r_offset - symValue);
-    _references.back()->setAddend(addend);
+    elfRelocation->setAddend(addend);
+    addReferenceToSymbol(elfRelocation, symbol);
+    _references.push_back(elfRelocation);
   }
 }
 
@@ -877,18 +1069,17 @@ void ELFFile<ELFT>::updateReferenceForMergeStringAccess(ELFReference<ELFT> *ref,
 
 template <class ELFT> void ELFFile<ELFT>::updateReferences() {
   for (auto &ri : _references) {
-    if (ri->kindNamespace() == lld::Reference::KindNamespace::ELF) {
-      const Elf_Sym *symbol = _objFile->getSymbol(ri->targetSymbolIndex());
-      const Elf_Shdr *shdr = _objFile->getSection(symbol);
+    if (ri->kindNamespace() != lld::Reference::KindNamespace::ELF)
+      continue;
+    const Elf_Sym *symbol = _objFile->getSymbol(ri->targetSymbolIndex());
+    const Elf_Shdr *shdr = _objFile->getSection(symbol);
 
-      // If the atom is not in mergeable string section, the target atom is
-      // simply that atom.
-      if (!isMergeableStringSection(shdr)) {
-        ri->setTarget(findAtom(symbol));
-        continue;
-      }
+    // If the atom is not in mergeable string section, the target atom is
+    // simply that atom.
+    if (isMergeableStringSection(shdr))
       updateReferenceForMergeStringAccess(ri, symbol, shdr);
-    }
+    else
+      ri->setTarget(findAtom(findSymbolForReference(ri), symbol));
   }
 }
 
@@ -954,6 +1145,33 @@ void ELFFile<ELFT>::createEdge(ELFDefinedAtom<ELFT> *from,
   auto reference = new (_readerStorage) ELFReference<ELFT>(edgeKind);
   reference->setTarget(to);
   from->addReference(reference);
+}
+
+/// Does the atom need to be redirected using a separate undefined atom?
+template <class ELFT>
+bool ELFFile<ELFT>::redirectReferenceUsingUndefAtom(
+    const Elf_Sym *sourceSymbol, const Elf_Sym *targetSymbol) const {
+  auto groupChildTarget = _groupChild.find(targetSymbol);
+
+  // If the reference is not to a group child atom, there is no need to redirect
+  // using a undefined atom. Its also not needed if the source and target are
+  // from the same section.
+  if ((groupChildTarget == _groupChild.end()) ||
+      (sourceSymbol->st_shndx == targetSymbol->st_shndx))
+    return false;
+
+  auto groupChildSource = _groupChild.find(sourceSymbol);
+
+  // If the source symbol is not in a group, use a undefined symbol too.
+  if (groupChildSource == _groupChild.end())
+    return true;
+
+  // If the source and child are from the same group, we dont need the
+  // relocation to go through a undefined symbol.
+  if (groupChildSource->second.second == groupChildTarget->second.second)
+    return false;
+
+  return true;
 }
 
 } // end namespace elf

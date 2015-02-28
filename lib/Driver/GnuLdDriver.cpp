@@ -358,6 +358,7 @@ GnuLdDriver::createELFLinkingContext(llvm::Triple triple) {
   LLVM_TARGET(Hexagon)
   LLVM_TARGET(Mips)
   LLVM_TARGET(X86)
+  LLVM_TARGET(Example)
   LLVM_TARGET(X86_64)
 #undef LLVM_TARGET
   return nullptr;
@@ -426,10 +427,6 @@ bool GnuLdDriver::parse(int argc, const char *argv[],
   // Set sys root path.
   if (auto *arg = parsedArgs->getLastArg(OPT_sysroot))
     ctx->setSysroot(arg->getValue());
-
-  // Add the default search directory specific to the target.
-  if (!parsedArgs->hasArg(OPT_nostdlib))
-    addPlatformSearchDirs(*ctx, triple, baseTriple);
 
   // Handle --demangle option(For compatibility)
   if (parsedArgs->hasArg(OPT_demangle))
@@ -548,6 +545,10 @@ bool GnuLdDriver::parse(int argc, const char *argv[],
 
   for (auto *arg : parsedArgs->filtered(OPT_L))
     ctx->addSearchPath(arg->getValue());
+
+  // Add the default search directory specific to the target.
+  if (!parsedArgs->hasArg(OPT_nostdlib))
+    addPlatformSearchDirs(*ctx, triple, baseTriple);
 
   for (auto *arg : parsedArgs->filtered(OPT_u))
     ctx->addInitialUndefinedSymbol(arg->getValue());

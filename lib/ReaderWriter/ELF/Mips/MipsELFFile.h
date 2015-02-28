@@ -11,7 +11,6 @@
 
 #include "ELFReader.h"
 #include "MipsLinkingContext.h"
-#include "llvm/Support/Endian.h"
 
 namespace llvm {
 namespace object {
@@ -199,18 +198,20 @@ private:
     return std::error_code();
   }
 
-  void createRelocationReferences(const Elf_Sym &symbol,
+  void createRelocationReferences(const Elf_Sym *symbol,
                                   ArrayRef<uint8_t> symContent,
                                   ArrayRef<uint8_t> secContent,
                                   range<Elf_Rel_Iter> rels) override {
     for (Elf_Rel_Iter rit = rels.begin(), eit = rels.end(); rit != eit; ++rit) {
-      if (rit->r_offset < symbol.st_value ||
-          symbol.st_value + symContent.size() <= rit->r_offset)
+      if (rit->r_offset < symbol->st_value ||
+          symbol->st_value + symContent.size() <= rit->r_offset)
         continue;
 
-      this->_references.push_back(new (this->_readerStorage) ELFReference<ELFT>(
-          rit->r_offset - symbol.st_value, this->kindArch(),
-          rit->getType(isMips64EL()), rit->getSymbol(isMips64EL())));
+      auto elfReference = new (this->_readerStorage) ELFReference<ELFT>(
+          rit->r_offset - symbol->st_value, this->kindArch(),
+          rit->getType(isMips64EL()), rit->getSymbol(isMips64EL()));
+      ELFFile<ELFT>::addReferenceToSymbol(elfReference, symbol);
+      this->_references.push_back(elfReference);
 
       auto addend = getAddend(*rit, secContent);
       auto pairRelType = getPairRelocation(*rit);
@@ -289,7 +290,7 @@ private:
     }
   }
 
-  uint32_t getPairRelocation(const Elf_Rel &rel) {
+  uint32_t getPairRelocation(const Elf_Rel &rel) const {
     switch (rel.getType(isMips64EL())) {
     case llvm::ELF::R_MIPS_HI16:
       return llvm::ELF::R_MIPS_LO16;
@@ -311,7 +312,7 @@ private:
   }
 
   Elf_Rel_Iter findMatchingRelocation(uint32_t pairRelType, Elf_Rel_Iter rit,
-                                      Elf_Rel_Iter eit) {
+                                      Elf_Rel_Iter eit) const {
     return std::find_if(rit, eit, [&](const Elf_Rel &rel) {
       return rel.getType(isMips64EL()) == pairRelType &&
              rel.getSymbol(isMips64EL()) == rit->getSymbol(isMips64EL());
@@ -319,7 +320,7 @@ private:
   }
 
   bool isMips64EL() const { return this->_objFile->isMips64EL(); }
-  bool isLocalBinding(const Elf_Rel &rel) {
+  bool isLocalBinding(const Elf_Rel &rel) const {
     return this->_objFile->getSymbol(rel.getSymbol(isMips64EL()))
                ->getBinding() == llvm::ELF::STB_LOCAL;
   }
