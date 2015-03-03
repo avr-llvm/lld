@@ -136,17 +136,17 @@ private:
     return nullptr;
   }
   
-  void createRelocationReferences(const Elf_Sym &symbol,
+  void createRelocationReferences(const Elf_Sym *symbol,
                                   ArrayRef<uint8_t> symContent,
                                   ArrayRef<uint8_t> secContent,
                                   range<Elf_Rel_Iter> rels) override {
     for (Elf_Rel_Iter rit = rels.begin(), eit = rels.end(); rit != eit; ++rit) {
-      if (rit->r_offset < symbol.st_value ||
-          symbol.st_value + symContent.size() <= rit->r_offset)
+      if (rit->r_offset < symbol->st_value ||
+          symbol->st_value + symContent.size() <= rit->r_offset)
         continue;
 
       this->_references.push_back(new (this->_readerStorage) ELFReference<ELFT>(
-          rit->r_offset - symbol.st_value, this->kindArch(),
+          rit->r_offset - symbol->st_value, this->kindArch(),
           rit->getType(false), rit->getSymbol(false)));
 
       auto addend = getAddend(*rit, secContent);
