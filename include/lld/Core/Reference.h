@@ -76,9 +76,6 @@ public:
     // kindLayoutAfter is treated as a bidirected edge by the dead-stripping
     // pass.
     kindLayoutAfter = 1,
-    // kindLayoutBefore is currently used only by PECOFF port, and will
-    // be removed soon. To enforce layout, use kindLayoutAfter instead.
-    kindLayoutBefore,
     // kindGroupChild is treated as a bidirected edge too.
     kindGroupChild,
     kindAssociate,
@@ -103,6 +100,9 @@ public:
 
   /// During linking, some optimzations may change addend value.
   virtual void setAddend(Addend) = 0;
+
+  /// Returns target specific attributes of the reference.
+  virtual uint32_t tag() const { return 0; }
 
 protected:
   /// Reference is an abstract base class.  Only subclasses can use constructor.

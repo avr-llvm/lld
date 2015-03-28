@@ -16,8 +16,9 @@
 #include "llvm/Support/MathExtras.h"
 
 #ifdef _MSC_VER
-// Exceptions are disabled so this isn't defined, but concrt assumes it is.
-static void *__uncaught_exception() { return nullptr; }
+// concrt.h depends on eh.h for __uncaught_exception declaration
+// even if we disable exceptions.
+#include <eh.h>
 #endif
 
 #include <algorithm>
@@ -66,6 +67,41 @@ public:
       return _count == 0;
     });
   }
+};
+
+/// \brief An implementation of future. std::future and std::promise in
+/// old libstdc++ have a threading bug; there is a small chance that a
+/// call of future::get throws an exception in the normal use case.
+/// We want to use our own future implementation until we drop support
+/// of old versions of libstdc++.
+/// https://gcc.gnu.org/ml/gcc-patches/2014-05/msg01389.html
+template<typename T> class Future {
+public:
+  Future() : _hasValue(false) {}
+
+  void set(T &&val) {
+    assert(!_hasValue);
+    {
+      std::unique_lock<std::mutex> lock(_mutex);
+      _val = val;
+      _hasValue = true;
+    }
+    _cond.notify_all();
+  }
+
+  T &get() {
+    std::unique_lock<std::mutex> lock(_mutex);
+    if (_hasValue)
+      return _val;
+    _cond.wait(lock, [&] { return _hasValue; });
+    return _val;
+  }
+
+private:
+  T _val;
+  bool _hasValue;
+  std::mutex _mutex;
+  std::condition_variable _cond;
 };
 
 /// \brief An abstract class that takes closures and runs them asynchronously.
@@ -259,7 +295,12 @@ void parallel_for_each(Iterator begin, Iterator end, Func func) {
 #else
 template <class Iterator, class Func>
 void parallel_for_each(Iterator begin, Iterator end, Func func) {
-  // TODO: Make this parallel.
+  TaskGroup tg;
+  ptrdiff_t taskSize = 1024;
+  while (taskSize <= std::distance(begin, end)) {
+    tg.spawn([=, &func] { std::for_each(begin, begin + taskSize, func); });
+    begin += taskSize;
+  }
   std::for_each(begin, end, func);
 }
 #endif

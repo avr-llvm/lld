@@ -17,6 +17,7 @@
 #include "lld/Core/Reader.h"
 #include "lld/Core/Writer.h"
 #include "lld/Driver/Driver.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/Triple.h"
 #include "llvm/Config/config.h"
@@ -213,7 +214,7 @@ void MachOLinkingContext::configure(HeaderFileType type, Arch arch, OS os,
     }
     break;
   case llvm::MachO::MH_DYLIB:
-    _globalsAreDeadStripRoots = true;
+    setGlobalsAreDeadStripRoots(true);
     break;
   case llvm::MachO::MH_BUNDLE:
     break;
@@ -569,7 +570,7 @@ bool MachOLinkingContext::validateImpl(raw_ostream &diagnostics) {
       addDeadStripRoot(binderSymbolName());
     // If using -exported_symbols_list, make all exported symbols live.
     if (_exportMode == ExportMode::whiteList) {
-      _globalsAreDeadStripRoots = false;
+      setGlobalsAreDeadStripRoots(false);
       for (const auto &symbol : _exportedSymbols)
         addDeadStripRoot(symbol.getKey());
     }
@@ -954,7 +955,7 @@ static bool isLibrary(const std::unique_ptr<Node> &elem) {
 // comes before any library file. We also make a group for the library files
 // so that the Resolver will reiterate over the libraries as long as we find
 // new undefines from libraries.
-void MachOLinkingContext::maybeSortInputFiles() {
+void MachOLinkingContext::finalizeInputFiles() {
   std::vector<std::unique_ptr<Node>> &elements = getNodes();
   std::stable_sort(elements.begin(), elements.end(),
                    [](const std::unique_ptr<Node> &a,

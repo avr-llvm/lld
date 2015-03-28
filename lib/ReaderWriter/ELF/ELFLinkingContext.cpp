@@ -13,6 +13,7 @@
 #include "TargetHandler.h"
 #include "lld/Core/Instrumentation.h"
 #include "lld/Core/SharedLibraryFile.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Triple.h"
 #include "llvm/Config/config.h"
 #include "llvm/Support/ELF.h"
@@ -25,22 +26,6 @@
 #endif
 
 namespace lld {
-
-class CommandLineAbsoluteAtom : public AbsoluteAtom {
-public:
-  CommandLineAbsoluteAtom(const File &file, StringRef name, uint64_t value)
-      : _file(file), _name(name), _value(value) {}
-
-  const File &file() const override { return _file; }
-  StringRef name() const override { return _name; }
-  uint64_t value() const override { return _value; }
-  Scope scope() const override { return scopeGlobal; }
-
-private:
-  const File &_file;
-  StringRef _name;
-  uint64_t _value;
-};
 
 class CommandLineUndefinedAtom : public SimpleUndefinedAtom {
 public:
@@ -62,7 +47,7 @@ ELFLinkingContext::ELFLinkingContext(
       _mergeRODataToTextSegment(true), _demangle(true),
       _stripSymbols(false), _alignSegments(true), _collectStats(false),
       _outputMagic(OutputMagic::DEFAULT), _initFunction("_init"),
-      _finiFunction("_fini"), _sysrootPath("") {}
+      _finiFunction("_fini"), _sysrootPath(""), _linkerScriptSema() {}
 
 void ELFLinkingContext::addPasses(PassManager &pm) {
   pm.add(llvm::make_unique<elf::OrderPass>());
@@ -162,10 +147,10 @@ ErrorOr<StringRef> ELFLinkingContext::searchLibrary(StringRef libName) const {
     if (llvm::sys::fs::exists(path.str()))
       return StringRef(*new (_allocator) std::string(path.str()));
   }
-  if (!llvm::sys::fs::exists(libName))
-    return make_error_code(llvm::errc::no_such_file_or_directory);
+  if (hasColonPrefix && llvm::sys::fs::exists(libName.drop_front()))
+      return libName.drop_front();
 
-  return libName;
+  return make_error_code(llvm::errc::no_such_file_or_directory);
 }
 
 ErrorOr<StringRef> ELFLinkingContext::searchFile(StringRef fileName,
@@ -198,10 +183,17 @@ void ELFLinkingContext::createInternalFiles(
   for (auto &i : getAbsoluteSymbols()) {
     StringRef sym = i.first;
     uint64_t val = i.second;
-    file->addAtom(*(new (_allocator) CommandLineAbsoluteAtom(*file, sym, val)));
+    file->addAtom(*(new (_allocator) SimpleAbsoluteAtom(
+        *file, sym, Atom::scopeGlobal, val)));
   }
   files.push_back(std::move(file));
   LinkingContext::createInternalFiles(files);
+}
+
+void ELFLinkingContext::finalizeInputFiles() {
+  // Add virtual archive that resolves undefined symbols.
+  if (_resolver)
+    getNodes().push_back(llvm::make_unique<FileNode>(std::move(_resolver)));
 }
 
 std::unique_ptr<File> ELFLinkingContext::createUndefinedSymbolFile() const {
@@ -259,6 +251,11 @@ std::string ELFLinkingContext::demangle(StringRef symbolName) const {
 #endif
 
   return symbolName;
+}
+
+void ELFLinkingContext::setUndefinesResolver(std::unique_ptr<File> resolver) {
+  assert(isa<ArchiveLibraryFile>(resolver.get()) && "Wrong resolver type");
+  _resolver = std::move(resolver);
 }
 
 } // end namespace lld

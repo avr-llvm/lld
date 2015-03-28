@@ -62,24 +62,19 @@ public:
   /// should be marked live (along with all Atoms they reference).  Usually
   /// this method returns false for main executables, but true for dynamic
   /// shared libraries.
-  bool globalsAreDeadStripRoots() const {
-    assert(_deadStrip && "only applicable when deadstripping enabled");
-    return _globalsAreDeadStripRoots;
-  }
+  bool globalsAreDeadStripRoots() const { return _globalsAreDeadStripRoots; };
 
   /// Only used if deadStrip() returns true.  This method returns the names
   /// of DefinedAtoms that should be marked live (along with all Atoms they
   /// reference). Only Atoms with scope scopeLinkageUnit or scopeGlobal can
   /// be kept live using this method.
   const std::vector<StringRef> &deadStripRoots() const {
-    assert(_deadStrip && "only applicable when deadstripping enabled");
     return _deadStripRoots;
   }
 
   /// Add the given symbol name to the dead strip root set. Only used if
   /// deadStrip() returns true.
   void addDeadStripRoot(StringRef symbolName) {
-    assert(_deadStrip && "only applicable when deadstripping enabled");
     assert(!symbolName.empty() && "Empty symbol cannot be a dead strip root");
     _deadStripRoots.push_back(symbolName);
   }
@@ -219,11 +214,6 @@ public:
   std::vector<std::unique_ptr<Node>> &getNodes() { return _nodes; }
   const std::vector<std::unique_ptr<Node>> &getNodes() const { return _nodes; }
 
-  /// Notify the LinkingContext when an atom is added to the symbol table.
-  /// This is an opportunity for flavor specific work to be done.
-  virtual void notifySymbolTableAdd(const Atom *atom) const {
-  }
-
   /// Notify the LinkingContext when the symbol table found a name collision.
   /// The useNew parameter specifies which the symbol table plans to keep,
   /// but that can be changed by the LinkingContext.  This is also an
@@ -317,8 +307,8 @@ public:
   virtual uint64_t getNextOrdinalAndIncrement() const { return _nextOrdinal++; }
 
   // This function is called just before the Resolver kicks in.
-  // Derived classes may use that chance to rearrange the input files.
-  virtual void maybeSortInputFiles() {}
+  // Derived classes may use it to change the list of input files.
+  virtual void finalizeInputFiles() {}
 
   TaskGroup &getTaskGroup() { return _taskGroup; }
 

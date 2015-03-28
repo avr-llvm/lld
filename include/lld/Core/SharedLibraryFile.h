@@ -20,9 +20,7 @@ namespace lld {
 ///
 class SharedLibraryFile : public File {
 public:
-  virtual ~SharedLibraryFile() {}
-
-  static inline bool classof(const File *f) {
+  static bool classof(const File *f) {
     return f->kind() == kindSharedLibrary;
   }
 

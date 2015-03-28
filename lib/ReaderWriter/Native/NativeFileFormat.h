@@ -136,6 +136,7 @@ struct NativeDefinedAtomIvarsV1 {
   uint32_t  referencesCount;
   uint32_t  contentOffset;
   uint32_t  contentSize;
+  uint64_t  sectionSize;
 };
 
 
@@ -150,7 +151,7 @@ struct NativeAtomAttributesV1 {
   uint8_t   interposable;
   uint8_t   merge;
   uint8_t   contentType;
-  uint8_t   sectionChoiceAndPosition; // high nibble is choice, low is position
+  uint8_t   sectionChoice;
   uint8_t   deadStrip;
   uint8_t   dynamicExport;
   uint8_t   permissions;
@@ -224,6 +225,7 @@ struct NativeReferenceIvarsV2 {
   uint8_t   kindNamespace;
   uint8_t   kindArch;
   uint32_t  targetIndex;
+  uint32_t  tag;
 };
 
 

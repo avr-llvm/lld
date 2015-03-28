@@ -123,6 +123,14 @@ public:
     _outputSectionName = outputSectionName;
   }
 
+  void setArchiveNameOrPath(StringRef name) { _archivePath = name; }
+
+  void setMemberNameOrPath(StringRef name) { _memberPath = name; }
+
+  StringRef archivePath() { return _archivePath; }
+
+  StringRef memberPath() { return _memberPath; }
+
 protected:
   /// \brief OutputSection this Section is a member of, or nullptr.
   OutputSection<ELFT> *_outputSection;
@@ -144,6 +152,8 @@ protected:
   StringRef _inputSectionName;
   /// \brief Output section name.
   StringRef _outputSectionName;
+  StringRef _archivePath;
+  StringRef _memberPath;
 };
 
 /// \brief A section containing atoms.
@@ -224,17 +234,17 @@ public:
   /// routine gets called after the linker fixes up the virtual address
   /// of the section
   virtual void assignVirtualAddress(uint64_t addr) override {
-    for (auto &ai : _atoms) {
+    parallel_for_each(_atoms.begin(), _atoms.end(), [&](AtomLayout *ai) {
       ai->_virtualAddr = addr + ai->_fileOffset;
-    }
+    });
   }
 
   /// \brief Set the file offset of each Atom in the section. This routine
   /// gets called after the linker fixes up the section offset
   void assignFileOffsets(uint64_t offset) override {
-    for (auto &ai : _atoms) {
+    parallel_for_each(_atoms.begin(), _atoms.end(), [&](AtomLayout *ai) {
       ai->_fileOffset = offset + ai->_fileOffset;
-    }
+    });
   }
 
   /// \brief Find the Atom address given a name, this is needed to properly
@@ -248,9 +258,7 @@ public:
   }
 
   /// \brief Return the raw flags, we need this to sort segments
-  inline int64_t atomflags() const {
-    return _contentPermissions;
-  }
+  int64_t atomflags() const { return _contentPermissions; }
 
   /// Atom Iterators
   typedef typename std::vector<lld::AtomLayout *>::iterator atom_iter;
@@ -449,39 +457,29 @@ public:
   void appendSection(Chunk<ELFT> *c);
 
   // Set the OutputSection is associated with a segment
-  inline void setHasSegment() { _hasSegment = true; }
+  void setHasSegment() { _hasSegment = true; }
 
   /// Sets the ordinal
-  inline void setOrdinal(uint64_t ordinal) {
-    _ordinal = ordinal;
-  }
+  void setOrdinal(uint64_t ordinal) { _ordinal = ordinal; }
 
   /// Sets the Memory size
-  inline void setMemSize(uint64_t memsz) {
-    _memSize = memsz;
-  }
+  void setMemSize(uint64_t memsz) { _memSize = memsz; }
 
   /// Sets the size fo the output Section.
-  inline void setSize(uint64_t fsiz) {
-    _size = fsiz;
-  }
+  void setSize(uint64_t fsiz) { _size = fsiz; }
 
   // The offset of the first section contained in the output section is
   // contained here.
-  inline void setFileOffset(uint64_t foffset) {
-    _fileOffset = foffset;
-  }
+  void setFileOffset(uint64_t foffset) { _fileOffset = foffset; }
 
   // Sets the starting address of the section
-  inline void setAddr(uint64_t addr) {
-    _virtualAddr = addr;
-  }
+  void setAddr(uint64_t addr) { _virtualAddr = addr; }
 
   // Is the section loadable?
-  inline bool isLoadableSection() const { return _isLoadableSection; }
+  bool isLoadableSection() const { return _isLoadableSection; }
 
   // Set section Loadable
-  inline void setLoadableSection(bool isLoadable) {
+  void setLoadableSection(bool isLoadable) {
     _isLoadableSection = isLoadable;
   }
 
@@ -493,36 +491,36 @@ public:
 
   void setType(int16_t type) { _type = type; }
 
-  inline range<ChunkIter> sections() { return _sections; }
+  range<ChunkIter> sections() { return _sections; }
 
   // The below functions returns the properties of the OutputSection.
-  inline bool hasSegment() const { return _hasSegment; }
+  bool hasSegment() const { return _hasSegment; }
 
-  inline StringRef name() const { return _name; }
+  StringRef name() const { return _name; }
 
-  inline int64_t shinfo() const { return _shInfo; }
+  int64_t shinfo() const { return _shInfo; }
 
-  inline uint64_t alignment() const { return _alignment; }
+  uint64_t alignment() const { return _alignment; }
 
-  inline int64_t link() const { return _link; }
+  int64_t link() const { return _link; }
 
-  inline int64_t type() const { return _type; }
+  int64_t type() const { return _type; }
 
-  inline uint64_t virtualAddr() const { return _virtualAddr; }
+  uint64_t virtualAddr() const { return _virtualAddr; }
 
-  inline int64_t ordinal() const { return _ordinal; }
+  int64_t ordinal() const { return _ordinal; }
 
-  inline int64_t kind() const { return _kind; }
+  int64_t kind() const { return _kind; }
 
-  inline uint64_t fileSize() const { return _size; }
+  uint64_t fileSize() const { return _size; }
 
-  inline int64_t entsize() const { return _entSize; }
+  int64_t entsize() const { return _entSize; }
 
-  inline uint64_t fileOffset() const { return _fileOffset; }
+  uint64_t fileOffset() const { return _fileOffset; }
 
-  inline int64_t flags() const { return _flags; }
+  int64_t flags() const { return _flags; }
 
-  inline uint64_t memSize() { return _memSize; }
+  uint64_t memSize() { return _memSize; }
 
 private:
   StringRef _name;
@@ -576,19 +574,17 @@ public:
 
   uint64_t addString(StringRef symname);
 
-  virtual void write(ELFWriter *writer, TargetLayout<ELFT> &layout,
-                     llvm::FileOutputBuffer &buffer);
+  void write(ELFWriter *writer, TargetLayout<ELFT> &layout,
+             llvm::FileOutputBuffer &buffer) override;
 
-  inline void setNumEntries(int64_t numEntries) {
-    _stringMap.resize(numEntries);
-  }
+  void setNumEntries(int64_t numEntries) { _stringMap.resize(numEntries); }
 
 private:
   std::vector<StringRef> _strings;
 
   struct StringRefMappingInfo {
     static StringRef getEmptyKey() { return StringRef(); }
-    static StringRef getTombstoneKey() { return StringRef(" ", 0); }
+    static StringRef getTombstoneKey() { return StringRef(" ", 1); }
     static unsigned getHashValue(StringRef const val) {
       return llvm::HashString(val);
     }
@@ -681,7 +677,7 @@ public:
     return STN_UNDEF;
   }
 
-  virtual void finalize() { finalize(true); }
+  void finalize() override { finalize(true); }
 
   virtual void sortSymbols() {
     std::stable_sort(_symbolTable.begin(), _symbolTable.end(),
@@ -700,10 +696,10 @@ public:
 
   virtual void addSharedLibAtom(Elf_Sym &sym, const SharedLibraryAtom *sla);
 
-  virtual void finalize(bool sort = true);
+  virtual void finalize(bool sort);
 
-  virtual void write(ELFWriter *writer, TargetLayout<ELFT> &layout,
-                     llvm::FileOutputBuffer &buffer);
+  void write(ELFWriter *writer, TargetLayout<ELFT> &layout,
+             llvm::FileOutputBuffer &buffer) override;
 
   void setStringSection(StringTable<ELFT> *s) { _stringSection = s; }
 
@@ -798,7 +794,7 @@ void SymbolTable<ELFT>::addAbsoluteAtom(Elf_Sym &sym, const AbsoluteAtom *aa,
   sym.st_shndx = llvm::ELF::SHN_ABS;
   switch (aa->scope()) {
   case AbsoluteAtom::scopeLinkageUnit:
-    sym.st_other = llvm::ELF::STV_HIDDEN;
+    sym.setVisibility(llvm::ELF::STV_HIDDEN);
     binding = llvm::ELF::STB_LOCAL;
     break;
   case AbsoluteAtom::scopeTranslationUnit:
@@ -857,7 +853,8 @@ void SymbolTable<ELFT>::addSymbol(const Atom *atom, int32_t sectionIndex,
   symbol.st_size = 0;
   symbol.st_shndx = sectionIndex;
   symbol.st_value = 0;
-  symbol.st_other = llvm::ELF::STV_DEFAULT;
+  symbol.st_other = 0;
+  symbol.setVisibility(llvm::ELF::STV_DEFAULT);
 
   // Add all the atoms
   if (const DefinedAtom *da = dyn_cast<const DefinedAtom>(atom))
@@ -934,7 +931,7 @@ public:
     }
   }
 
-  virtual void finalize() {
+  void finalize() override {
     // Defined symbols which have been added into the dynamic symbol table
     // don't have their addresses known until addresses have been assigned
     // so let's update the symbol values after they have got assigned
@@ -1011,61 +1008,66 @@ public:
     return false;
   }
 
-  virtual void finalize() {
+  void finalize() override {
     this->_link = _symbolTable ? _symbolTable->ordinal() : 0;
     if (this->_outputSection)
       this->_outputSection->setLink(this->_link);
   }
 
-  virtual void write(ELFWriter *writer, TargetLayout<ELFT> &layout,
-                     llvm::FileOutputBuffer &buffer) {
+  void write(ELFWriter *writer, TargetLayout<ELFT> &layout,
+             llvm::FileOutputBuffer &buffer) override {
     uint8_t *chunkBuffer = buffer.getBufferStart();
     uint8_t *dest = chunkBuffer + this->fileOffset();
     for (const auto &rel : _relocs) {
-      if (this->_context.isRelaOutputFormat())
-        writeRela(writer, *reinterpret_cast<Elf_Rela *>(dest), *rel.first,
-                  *rel.second);
-      else
-        writeRel(writer, *reinterpret_cast<Elf_Rel *>(dest), *rel.first,
-                 *rel.second);
+      if (this->_context.isRelaOutputFormat()) {
+        auto &r = *reinterpret_cast<Elf_Rela *>(dest);
+        writeRela(writer, r, *rel.first, *rel.second);
+        DEBUG_WITH_TYPE("ELFRelocationTable",
+                        llvm::dbgs()
+                            << rel.second->kindValue() << " relocation at "
+                            << rel.first->name() << "@" << r.r_offset << " to "
+                            << rel.second->target()->name() << "@" << r.r_addend
+                            << "\n";);
+      } else {
+        auto &r = *reinterpret_cast<Elf_Rel *>(dest);
+        writeRel(writer, r, *rel.first, *rel.second);
+        DEBUG_WITH_TYPE("ELFRelocationTable",
+                        llvm::dbgs() << rel.second->kindValue()
+                                     << " relocation at " << rel.first->name()
+                                     << "@" << r.r_offset << " to "
+                                     << rel.second->target()->name() << "\n";);
+      }
       dest += this->_entSize;
     }
   }
 
-private:
-  std::vector<std::pair<const DefinedAtom *, const Reference *> > _relocs;
+protected:
   const DynamicSymbolTable<ELFT> *_symbolTable;
 
-  void writeRela(ELFWriter *writer, Elf_Rela &r, const DefinedAtom &atom,
-                 const Reference &ref) {
-    uint32_t index =
-        _symbolTable ? _symbolTable->getSymbolTableIndex(ref.target())
-                     : (uint32_t)STN_UNDEF;
-    r.setSymbolAndType(index, ref.kindValue(), false);
+  virtual void writeRela(ELFWriter *writer, Elf_Rela &r,
+                         const DefinedAtom &atom, const Reference &ref) {
+    r.setSymbolAndType(getSymbolIndex(ref.target()), ref.kindValue(), false);
     r.r_offset = writer->addressOfAtom(&atom) + ref.offsetInAtom();
-    r.r_addend = 0;
     // The addend is used only by relative relocations
     if (this->_context.isRelativeReloc(ref))
       r.r_addend = writer->addressOfAtom(ref.target()) + ref.addend();
-    DEBUG_WITH_TYPE("ELFRelocationTable",
-                    llvm::dbgs() << ref.kindValue() << " relocation at "
-                                 << atom.name() << "@" << r.r_offset << " to "
-                                 << ref.target()->name() << "@" << r.r_addend
-                                 << "\n";);
+    else
+      r.r_addend = 0;
   }
 
-  void writeRel(ELFWriter *writer, Elf_Rel &r, const DefinedAtom &atom,
-                const Reference &ref) {
-    uint32_t index =
-        _symbolTable ? _symbolTable->getSymbolTableIndex(ref.target())
-                     : (uint32_t)STN_UNDEF;
-    r.setSymbolAndType(index, ref.kindValue(), false);
+  virtual void writeRel(ELFWriter *writer, Elf_Rel &r, const DefinedAtom &atom,
+                        const Reference &ref) {
+    r.setSymbolAndType(getSymbolIndex(ref.target()), ref.kindValue(), false);
     r.r_offset = writer->addressOfAtom(&atom) + ref.offsetInAtom();
-    DEBUG_WITH_TYPE("ELFRelocationTable",
-                    llvm::dbgs() << ref.kindValue() << " relocation at "
-                                 << atom.name() << "@" << r.r_offset << " to "
-                                 << ref.target()->name() << "\n";);
   }
+
+  uint32_t getSymbolIndex(const Atom *a) {
+    return _symbolTable ? _symbolTable->getSymbolTableIndex(a)
+                        : (uint32_t)STN_UNDEF;
+  }
+
+private:
+  std::vector<std::pair<const DefinedAtom *, const Reference *> > _relocs;
 };
 
 template <class ELFT> class HashSection;
@@ -1099,7 +1101,7 @@ public:
   }
 
   void write(ELFWriter *writer, TargetLayout<ELFT> &layout,
-             llvm::FileOutputBuffer &buffer) {
+             llvm::FileOutputBuffer &buffer) override {
     uint8_t *chunkBuffer = buffer.getBufferStart();
     uint8_t *dest = chunkBuffer + this->fileOffset();
     // Add the null entry.
@@ -1153,7 +1155,7 @@ public:
     }
   }
 
-  virtual void doPreFlight() {
+  void doPreFlight() override {
     Elf_Dyn dyn;
     dyn.d_un.d_val = 0;
     auto initArray = _layout.findOutputSection(".init_array");
@@ -1184,7 +1186,7 @@ public:
   /// Usually but not always targets use DT_PLTGOT for that.
   virtual int64_t getGotPltTag() { return DT_PLTGOT; }
 
-  virtual void finalize() {
+  void finalize() override {
     StringTable<ELFT> *dynamicStringTable =
         _dynamicSymbolTable->getStringTable();
     this->_link = dynamicStringTable->ordinal();
@@ -1373,7 +1375,7 @@ public:
   // may be properly assigned. Let's calculate the buckets and the chains
   // and fill the chains and the buckets hash table used by the dynamic
   // linker and update the filesize and memory size accordingly
-  virtual void doPreFlight() {
+  void doPreFlight() override {
     // The number of buckets to use for a certain number of symbols.
     // If there are less than 3 symbols, 1 bucket will be used. If
     // there are less than 17 symbols, 3 buckets will be used, and so
@@ -1409,14 +1411,14 @@ public:
     this->_msize = this->_fsize;
   }
 
-  virtual void finalize() {
+  void finalize() override {
     this->_link = _symbolTable ? _symbolTable->ordinal() : 0;
     if (this->_outputSection)
       this->_outputSection->setLink(this->_link);
   }
 
-  virtual void write(ELFWriter *writer, TargetLayout<ELFT> &layout,
-                     llvm::FileOutputBuffer &buffer) {
+  void write(ELFWriter *writer, TargetLayout<ELFT> &layout,
+             llvm::FileOutputBuffer &buffer) override {
     uint8_t *chunkBuffer = buffer.getBufferStart();
     uint8_t *dest = chunkBuffer + this->fileOffset();
     uint32_t bucketChainCounts[2];
@@ -1449,7 +1451,8 @@ template <class ELFT> class EHFrameHeader : public Section<ELFT> {
 public:
   EHFrameHeader(const ELFLinkingContext &context, StringRef name,
                 TargetLayout<ELFT> &layout, int32_t order)
-      : Section<ELFT>(context, name, "EHFrameHeader"), _layout(layout) {
+      : Section<ELFT>(context, name, "EHFrameHeader"), _ehFrameOffset(0),
+        _layout(layout) {
     this->setOrder(order);
     this->_entSize = 0;
     this->_type = SHT_PROGBITS;
@@ -1466,24 +1469,27 @@ public:
 
   void finalize() override {
     OutputSection<ELFT> *s = _layout.findOutputSection(".eh_frame");
-    _ehFrameAddr = s ? s->virtualAddr() : 0;
+    OutputSection<ELFT> *h = _layout.findOutputSection(".eh_frame_hdr");
+    if (s && h)
+      _ehFrameOffset = s->virtualAddr() - (h->virtualAddr() + 4);
   }
 
-  virtual void write(ELFWriter *writer, TargetLayout<ELFT> &layout,
-                     llvm::FileOutputBuffer &buffer) override {
+  void write(ELFWriter *writer, TargetLayout<ELFT> &layout,
+             llvm::FileOutputBuffer &buffer) override {
     uint8_t *chunkBuffer = buffer.getBufferStart();
     uint8_t *dest = chunkBuffer + this->fileOffset();
     int pos = 0;
     dest[pos++] = 1; // version
-    dest[pos++] = llvm::dwarf::DW_EH_PE_udata4; // eh_frame_ptr_enc
+    dest[pos++] = llvm::dwarf::DW_EH_PE_pcrel |
+                  llvm::dwarf::DW_EH_PE_sdata4; // eh_frame_ptr_enc
     dest[pos++] = llvm::dwarf::DW_EH_PE_omit; // fde_count_enc
     dest[pos++] = llvm::dwarf::DW_EH_PE_omit; // table_enc
-    *reinterpret_cast<typename llvm::object::ELFFile<ELFT>::Elf_Word *>(
-         dest + pos) = (uint32_t)_ehFrameAddr;
+    *reinterpret_cast<typename llvm::object::ELFFile<ELFT>::Elf_Sword *>(
+        dest + pos) = _ehFrameOffset;
   }
 
 private:
-  uint64_t _ehFrameAddr;
+  int32_t _ehFrameOffset;
   TargetLayout<ELFT> &_layout;
 };
 } // end namespace elf

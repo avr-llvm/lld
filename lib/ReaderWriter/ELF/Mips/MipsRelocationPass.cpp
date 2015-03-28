@@ -19,16 +19,20 @@ using namespace llvm::ELF;
 
 // Lazy resolver
 static const uint8_t mipsGot0AtomContent[] = {
+  0x00, 0x00, 0x00, 0x00,
   0x00, 0x00, 0x00, 0x00
 };
 
 // Module pointer
 static const uint8_t mipsGotModulePointerAtomContent[] = {
+  0x00, 0x00, 0x00, 0x00,
   0x00, 0x00, 0x00, 0x80
 };
 
 // TLS GD Entry
 static const uint8_t mipsGotTlsGdAtomContent[] = {
+  0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00,
   0x00, 0x00, 0x00, 0x00,
   0x00, 0x00, 0x00, 0x00
 };
@@ -74,6 +78,14 @@ static const uint8_t micromipsPltAtomContent[] = {
   0x02, 0x0f              // move $24, $2
 };
 
+// R6 PLT entry
+static const uint8_t mipsR6PltAAtomContent[] = {
+  0x00, 0x00, 0x0f, 0x3c, // lui   $15, %hi(.got.plt entry)
+  0x00, 0x00, 0xf9, 0x8d, // l[wd] $25, %lo(.got.plt entry)($15)
+  0x09, 0x00, 0x20, 0x03, // jr    $25
+  0x00, 0x00, 0xf8, 0x25  // addiu $24, $15, %lo(.got.plt entry)
+};
+
 // LA25 stub entry
 static const uint8_t mipsLA25AtomContent[] = {
   0x00, 0x00, 0x19, 0x3c, // lui   $25, %hi(func)
@@ -101,34 +113,52 @@ public:
 };
 
 /// \brief MIPS GOT entry initialized by zero.
-class GOT0Atom : public MipsGOTAtom {
+template <typename ELFT> class GOT0Atom : public MipsGOTAtom {
 public:
   GOT0Atom(const File &f) : MipsGOTAtom(f) {}
 
-  ArrayRef<uint8_t> rawContent() const override {
-    return llvm::makeArrayRef(mipsGot0AtomContent);
-  }
+  ArrayRef<uint8_t> rawContent() const override;
 };
 
+template <> ArrayRef<uint8_t> GOT0Atom<Mips32ELType>::rawContent() const {
+  return llvm::makeArrayRef(mipsGot0AtomContent).slice(4);
+}
+template <> ArrayRef<uint8_t> GOT0Atom<Mips64ELType>::rawContent() const {
+  return llvm::makeArrayRef(mipsGot0AtomContent);
+}
+
 /// \brief MIPS GOT entry initialized by zero.
-class GOTModulePointerAtom : public MipsGOTAtom {
+template <typename ELFT> class GOTModulePointerAtom : public MipsGOTAtom {
 public:
   GOTModulePointerAtom(const File &f) : MipsGOTAtom(f) {}
 
-  ArrayRef<uint8_t> rawContent() const override {
-    return llvm::makeArrayRef(mipsGotModulePointerAtomContent);
-  }
+  ArrayRef<uint8_t> rawContent() const override;
 };
 
+template <>
+ArrayRef<uint8_t> GOTModulePointerAtom<Mips32ELType>::rawContent() const {
+  return llvm::makeArrayRef(mipsGotModulePointerAtomContent).slice(4);
+}
+template <>
+ArrayRef<uint8_t> GOTModulePointerAtom<Mips64ELType>::rawContent() const {
+  return llvm::makeArrayRef(mipsGotModulePointerAtomContent);
+}
+
 /// \brief MIPS GOT TLS GD entry.
-class GOTTLSGdAtom : public MipsGOTAtom {
+template <typename ELFT> class GOTTLSGdAtom : public MipsGOTAtom {
 public:
   GOTTLSGdAtom(const File &f) : MipsGOTAtom(f) {}
 
-  ArrayRef<uint8_t> rawContent() const override {
-    return llvm::makeArrayRef(mipsGotTlsGdAtomContent);
-  }
+  ArrayRef<uint8_t> rawContent() const override;
 };
+
+template <> ArrayRef<uint8_t> GOTTLSGdAtom<Mips32ELType>::rawContent() const {
+    return llvm::makeArrayRef(mipsGotTlsGdAtomContent).slice(8);
+}
+
+template <> ArrayRef<uint8_t> GOTTLSGdAtom<Mips64ELType>::rawContent() const {
+    return llvm::makeArrayRef(mipsGotTlsGdAtomContent);
+}
 
 class GOTPLTAtom : public GOTAtom {
 public:
@@ -146,7 +176,7 @@ public:
   Alignment alignment() const override { return Alignment(2); }
 
   ArrayRef<uint8_t> rawContent() const override {
-    return llvm::makeArrayRef(mipsGot0AtomContent);
+    return llvm::makeArrayRef(mipsGot0AtomContent).slice(4);
   }
 };
 
@@ -189,6 +219,15 @@ public:
 
   ArrayRef<uint8_t> rawContent() const override {
     return llvm::makeArrayRef(mipsPltAAtomContent);
+  }
+};
+
+class PLTR6Atom : public PLTAAtom {
+public:
+  PLTR6Atom(const GOTPLTAtom *got, const File &f) : PLTAAtom(got, f) {}
+
+  ArrayRef<uint8_t> rawContent() const override {
+    return llvm::makeArrayRef(mipsR6PltAAtomContent);
   }
 };
 
@@ -268,6 +307,7 @@ private:
   /// \brief Map Atoms and addend to local GOT entries.
   typedef std::pair<const Atom *, int64_t> LocalGotMapKeyT;
   llvm::DenseMap<LocalGotMapKeyT, GOTAtom *> _gotLocalMap;
+  llvm::DenseMap<LocalGotMapKeyT, GOTAtom *> _gotLocalPageMap;
 
   /// \brief Map Atoms to global GOT entries.
   llvm::DenseMap<const Atom *, GOTAtom *> _gotGlobalMap;
@@ -279,7 +319,7 @@ private:
   llvm::DenseMap<const Atom *, GOTAtom *> _gotTLSGdMap;
 
   /// \brief GOT entry for the R_xxxMIPS_TLS_LDM relocations.
-  GOTTLSGdAtom *_gotLDMEntry;
+  GOTTLSGdAtom<ELFT> *_gotLDMEntry;
 
   /// \brief the list of local GOT atoms.
   std::vector<GOTAtom *> _localGotVector;
@@ -340,6 +380,7 @@ private:
   void handleGOT(Reference &ref);
 
   const GOTAtom *getLocalGOTEntry(const Reference &ref);
+  const GOTAtom *getLocalGOTPageEntry(const Reference &ref);
   const GOTAtom *getGlobalGOTEntry(const Atom *a);
   const GOTAtom *getTLSGOTEntry(const Atom *a);
   const GOTAtom *getTLSGdGOTEntry(const Atom *a);
@@ -359,18 +400,21 @@ private:
   bool isLocalCall(const Atom *a) const;
   bool isDynamic(const Atom *atom) const;
   bool requireLA25Stub(const Atom *a) const;
-  bool requirePLTEntry(Reference &ref);
-  bool requireCopy(Reference &ref);
+  bool requirePLTEntry(const Atom *a) const;
+  bool requireCopy(const Atom *a) const;
   bool mightBeDynamic(const MipsELFDefinedAtom<ELFT> &atom,
-                      const Reference &ref) const;
+                      Reference::KindValue refKind) const;
   bool hasPLTEntry(const Atom *atom) const;
+
+  bool isR6Target() const;
 };
 
 template <typename ELFT>
 RelocationPass<ELFT>::RelocationPass(MipsLinkingContext &ctx)
     : _ctx(ctx), _file(ctx), _gotLDMEntry(nullptr) {
-  _localGotVector.push_back(new (_file._alloc) GOT0Atom(_file));
-  _localGotVector.push_back(new (_file._alloc) GOTModulePointerAtom(_file));
+  _localGotVector.push_back(new (_file._alloc) GOT0Atom<ELFT>(_file));
+  _localGotVector.push_back(new (_file._alloc)
+                                GOTModulePointerAtom<ELFT>(_file));
 }
 
 template <typename ELFT>
@@ -391,6 +435,8 @@ void RelocationPass<ELFT>::perform(std::unique_ptr<MutableFile> &mf) {
     if (!isDynamic(ref->target()) || hasPLTEntry(ref->target()))
       continue;
     ref->setKindValue(R_MIPS_REL32);
+    if (ELFT::Is64Bits)
+      static_cast<MipsELFReference<ELFT> *>(ref)->setTag(R_MIPS_64);
     if (!isLocalCall(ref->target()))
       getGlobalGOTEntry(ref->target());
   }
@@ -470,6 +516,8 @@ void RelocationPass<ELFT>::handleReference(const MipsELFDefinedAtom<ELFT> &atom,
   case R_MIPS_PC32:
   case R_MIPS_HI16:
   case R_MIPS_LO16:
+  case R_MIPS_PCHI16:
+  case R_MIPS_PCLO16:
   case R_MICROMIPS_HI16:
   case R_MICROMIPS_LO16:
     // FIXME (simon): Handle dynamic/static linking differently.
@@ -483,7 +531,12 @@ void RelocationPass<ELFT>::handleReference(const MipsELFDefinedAtom<ELFT> &atom,
   case R_MIPS_CALL16:
   case R_MICROMIPS_GOT16:
   case R_MICROMIPS_CALL16:
+  case R_MIPS_GOT_DISP:
+  case R_MIPS_GOT_PAGE:
     handleGOT(ref);
+    break;
+  case R_MIPS_GOT_OFST:
+    // Nothing to do. We create GOT page entry in the R_MIPS_GOT_PAGE handler.
     break;
   case R_MIPS_GPREL16:
     if (isLocal(ref.target()))
@@ -520,10 +573,11 @@ void RelocationPass<ELFT>::handleReference(const MipsELFDefinedAtom<ELFT> &atom,
 }
 
 template <typename ELFT>
-static bool isConstrainSym(const MipsELFDefinedAtom<ELFT> &atom, Reference &ref) {
+static bool isConstrainSym(const MipsELFDefinedAtom<ELFT> &atom,
+                           Reference::KindValue refKind) {
   if ((atom.section()->sh_flags & SHF_ALLOC) == 0)
     return false;
-  switch (ref.kindValue()) {
+  switch (refKind) {
   case R_MIPS_NONE:
   case R_MIPS_JALR:
   case R_MICROMIPS_JALR:
@@ -536,24 +590,24 @@ static bool isConstrainSym(const MipsELFDefinedAtom<ELFT> &atom, Reference &ref)
 }
 
 template <typename ELFT>
-void
-RelocationPass<ELFT>::collectReferenceInfo(const MipsELFDefinedAtom<ELFT> &atom,
-                                           Reference &ref) {
+void RelocationPass<ELFT>::collectReferenceInfo(
+    const MipsELFDefinedAtom<ELFT> &atom, Reference &ref) {
   if (!ref.target())
     return;
   if (ref.kindNamespace() != lld::Reference::KindNamespace::ELF)
     return;
-  if (!isConstrainSym(atom, ref))
+
+  auto refKind = ref.kindValue();
+  if (!isConstrainSym(atom, refKind))
     return;
 
-  if (mightBeDynamic(atom, ref))
+  if (mightBeDynamic(atom, refKind))
     _rel32Candidates.push_back(&ref);
   else
     _hasStaticRelocations.insert(ref.target());
 
-  if (ref.kindValue() != R_MIPS_CALL16 &&
-      ref.kindValue() != R_MICROMIPS_CALL16 && ref.kindValue() != R_MIPS_26 &&
-      ref.kindValue() != R_MICROMIPS_26_S1)
+  if (refKind != R_MIPS_CALL16 && refKind != R_MICROMIPS_CALL16 &&
+      refKind != R_MIPS_26 && refKind != R_MICROMIPS_26_S1)
     _requiresPtrEquality.insert(ref.target());
 }
 
@@ -580,19 +634,17 @@ static bool isMipsReadonly(const MipsELFDefinedAtom<ELFT> &atom) {
 
 template <typename ELFT>
 bool RelocationPass<ELFT>::mightBeDynamic(const MipsELFDefinedAtom<ELFT> &atom,
-                                          const Reference &ref) const {
-  auto refKind = ref.kindValue();
-
+                                          Reference::KindValue refKind) const {
   if (refKind == R_MIPS_CALL16 || refKind == R_MIPS_GOT16 ||
       refKind == R_MICROMIPS_CALL16 || refKind == R_MICROMIPS_GOT16)
     return true;
 
-  if (refKind != R_MIPS_32)
+  if (refKind != R_MIPS_32 && refKind != R_MIPS_64)
     return false;
   if ((atom.section()->sh_flags & SHF_ALLOC) == 0)
     return false;
 
-  if (_ctx.getOutputELFType() == llvm::ELF::ET_DYN)
+  if (_ctx.getOutputELFType() == ET_DYN)
     return true;
   if (!isMipsReadonly(atom))
     return true;
@@ -607,26 +659,36 @@ bool RelocationPass<ELFT>::hasPLTEntry(const Atom *atom) const {
   return _pltRegMap.count(atom) || _pltMicroMap.count(atom);
 }
 
-template <typename ELFT>
-bool RelocationPass<ELFT>::requirePLTEntry(Reference &ref) {
-  if (!_hasStaticRelocations.count(ref.target()))
+template <typename ELFT> bool RelocationPass<ELFT>::isR6Target() const {
+  switch (_ctx.getMergedELFFlags() & EF_MIPS_ARCH) {
+  case EF_MIPS_ARCH_32R6:
+  case EF_MIPS_ARCH_64R6:
+    return true;
+  default:
     return false;
-  const auto *sa = dyn_cast<ELFDynamicAtom<ELFT>>(ref.target());
+  }
+}
+
+template <typename ELFT>
+bool RelocationPass<ELFT>::requirePLTEntry(const Atom *a) const {
+  if (!_hasStaticRelocations.count(a))
+    return false;
+  const auto *sa = dyn_cast<ELFDynamicAtom<ELFT>>(a);
   if (sa && sa->type() != SharedLibraryAtom::Type::Code)
     return false;
-  const auto *da = dyn_cast<ELFDefinedAtom<ELFT>>(ref.target());
+  const auto *da = dyn_cast<ELFDefinedAtom<ELFT>>(a);
   if (da && da->contentType() != DefinedAtom::typeCode)
     return false;
-  if (isLocalCall(ref.target()))
+  if (isLocalCall(a))
     return false;
   return true;
 }
 
 template <typename ELFT>
-bool RelocationPass<ELFT>::requireCopy(Reference &ref) {
-  if (!_hasStaticRelocations.count(ref.target()))
+bool RelocationPass<ELFT>::requireCopy(const Atom *a) const {
+  if (!_hasStaticRelocations.count(a))
     return false;
-  const auto *sa = dyn_cast<ELFDynamicAtom<ELFT>>(ref.target());
+  const auto *sa = dyn_cast<ELFDynamicAtom<ELFT>>(a);
   return sa && sa->type() == SharedLibraryAtom::Type::Data;
 }
 
@@ -640,7 +702,7 @@ bool RelocationPass<ELFT>::isDynamic(const Atom *atom) const {
   if (sa)
     return true;
 
-  if (_ctx.getOutputELFType() == llvm::ELF::ET_DYN) {
+  if (_ctx.getOutputELFType() == ET_DYN) {
     if (da && da->scope() != DefinedAtom::scopeTranslationUnit)
       return true;
 
@@ -690,9 +752,9 @@ void RelocationPass<ELFT>::handlePlain(const MipsELFDefinedAtom<ELFT> &atom,
   if (!isDynamic(ref.target()))
       return;
 
-  if (requirePLTEntry(ref))
+  if (requirePLTEntry(ref.target()))
     ref.setTarget(getPLTEntry(ref.target()));
-  else if (requireCopy(ref))
+  else if (requireCopy(ref.target()))
     ref.setTarget(getObjectEntry(cast<SharedLibraryAtom>(ref.target())));
 }
 
@@ -700,6 +762,7 @@ template <typename ELFT>
 void RelocationPass<ELFT>::handle26(const MipsELFDefinedAtom<ELFT> &atom,
                                     Reference &ref) {
   bool isMicro = ref.kindValue() == R_MICROMIPS_26_S1;
+  assert((isMicro || ref.kindValue() == R_MIPS_26) && "Unexpected relocation");
 
   const auto *sla = dyn_cast<SharedLibraryAtom>(ref.target());
   if (sla && sla->type() == SharedLibraryAtom::Type::Code)
@@ -708,24 +771,28 @@ void RelocationPass<ELFT>::handle26(const MipsELFDefinedAtom<ELFT> &atom,
   if (requireLA25Stub(ref.target()))
     ref.setTarget(getLA25Entry(ref.target(), isMicro));
 
-  if (!isLocal(ref.target()))
-    switch (ref.kindValue()) {
-    case R_MIPS_26:
-      ref.setKindValue(LLD_R_MIPS_GLOBAL_26);
-      break;
-    case R_MICROMIPS_26_S1:
+  if (!isLocal(ref.target())) {
+    if (isMicro)
       ref.setKindValue(LLD_R_MICROMIPS_GLOBAL_26_S1);
-      break;
-    default:
-      llvm_unreachable("Unexpected relocation kind");
-    }
+    else
+      ref.setKindValue(LLD_R_MIPS_GLOBAL_26);
+  }
 }
 
 template <typename ELFT> void RelocationPass<ELFT>::handleGOT(Reference &ref) {
-  if (isLocalCall(ref.target()))
-    ref.setTarget(getLocalGOTEntry(ref));
-  else
+  if (!isLocalCall(ref.target())) {
     ref.setTarget(getGlobalGOTEntry(ref.target()));
+    return;
+  }
+
+  if (ref.kindValue() == R_MIPS_GOT_PAGE)
+    ref.setTarget(getLocalGOTPageEntry(ref));
+  else if (ref.kindValue() == R_MIPS_GOT_DISP)
+    ref.setTarget(getLocalGOTEntry(ref));
+  else if (isLocal(ref.target()))
+    ref.setTarget(getLocalGOTPageEntry(ref));
+  else
+    ref.setTarget(getLocalGOTEntry(ref));
 }
 
 template <typename ELFT>
@@ -743,7 +810,7 @@ bool RelocationPass<ELFT>::isLocalCall(const Atom *a) const {
     return true;
 
   // Calls to external symbols defined in an executable file resolved locally.
-  if (_ctx.getOutputELFType() == llvm::ELF::ET_EXEC)
+  if (_ctx.getOutputELFType() == ET_EXEC)
     return true;
 
   return false;
@@ -767,15 +834,35 @@ const GOTAtom *RelocationPass<ELFT>::getLocalGOTEntry(const Reference &ref) {
   if (got != _gotLocalMap.end())
     return got->second;
 
-  auto ga = new (_file._alloc) GOT0Atom(_file);
+  auto ga = new (_file._alloc) GOT0Atom<ELFT>(_file);
   _gotLocalMap[key] = ga;
 
   _localGotVector.push_back(ga);
 
-  if (isLocal(a))
-    ga->addReferenceELF_Mips(LLD_R_MIPS_32_HI16, 0, a, ref.addend());
-  else
-    ga->addReferenceELF_Mips(R_MIPS_32, 0, a, 0);
+  Reference::KindValue relKind = ELFT::Is64Bits ? R_MIPS_64 : R_MIPS_32;
+  ga->addReferenceELF_Mips(relKind, 0, a, 0);
+
+  return ga;
+}
+
+template <typename ELFT>
+const GOTAtom *
+RelocationPass<ELFT>::getLocalGOTPageEntry(const Reference &ref) {
+  const Atom *a = ref.target();
+  LocalGotMapKeyT key(a, ref.addend());
+
+  auto got = _gotLocalPageMap.find(key);
+  if (got != _gotLocalPageMap.end())
+    return got->second;
+
+  auto ga = new (_file._alloc) GOT0Atom<ELFT>(_file);
+  _gotLocalPageMap[key] = ga;
+
+  _localGotVector.push_back(ga);
+
+  Reference::KindValue relKind =
+      ELFT::Is64Bits ? LLD_R_MIPS_64_HI16 : LLD_R_MIPS_32_HI16;
+  ga->addReferenceELF_Mips(relKind, 0, a, ref.addend());
 
   return ga;
 }
@@ -786,7 +873,7 @@ const GOTAtom *RelocationPass<ELFT>::getGlobalGOTEntry(const Atom *a) {
   if (got != _gotGlobalMap.end())
     return got->second;
 
-  auto ga = new (_file._alloc) GOT0Atom(_file);
+  auto ga = new (_file._alloc) GOT0Atom<ELFT>(_file);
   _gotGlobalMap[a] = ga;
 
   _globalGotVector.push_back(ga);
@@ -804,11 +891,13 @@ const GOTAtom *RelocationPass<ELFT>::getTLSGOTEntry(const Atom *a) {
   if (got != _gotTLSMap.end())
     return got->second;
 
-  auto ga = new (_file._alloc) GOT0Atom(_file);
+  auto ga = new (_file._alloc) GOT0Atom<ELFT>(_file);
   _gotTLSMap[a] = ga;
 
   _tlsGotVector.push_back(ga);
-  ga->addReferenceELF_Mips(R_MIPS_TLS_TPREL32, 0, a, 0);
+  Reference::KindValue relKind =
+      ELFT::Is64Bits ? R_MIPS_TLS_TPREL64 : R_MIPS_TLS_TPREL32;
+  ga->addReferenceELF_Mips(relKind, 0, a, 0);
 
   return ga;
 }
@@ -819,12 +908,17 @@ const GOTAtom *RelocationPass<ELFT>::getTLSGdGOTEntry(const Atom *a) {
   if (got != _gotTLSGdMap.end())
     return got->second;
 
-  auto ga = new (_file._alloc) GOTTLSGdAtom(_file);
+  auto ga = new (_file._alloc) GOTTLSGdAtom<ELFT>(_file);
   _gotTLSGdMap[a] = ga;
 
   _tlsGotVector.push_back(ga);
-  ga->addReferenceELF_Mips(R_MIPS_TLS_DTPMOD32, 0, a, 0);
-  ga->addReferenceELF_Mips(R_MIPS_TLS_DTPREL32, 4, a, 0);
+  if (ELFT::Is64Bits) {
+    ga->addReferenceELF_Mips(R_MIPS_TLS_DTPMOD64, 0, a, 0);
+    ga->addReferenceELF_Mips(R_MIPS_TLS_DTPREL64, 8, a, 0);
+  } else {
+    ga->addReferenceELF_Mips(R_MIPS_TLS_DTPMOD32, 0, a, 0);
+    ga->addReferenceELF_Mips(R_MIPS_TLS_DTPREL32, 4, a, 0);
+  }
 
   return ga;
 }
@@ -834,9 +928,12 @@ const GOTAtom *RelocationPass<ELFT>::getTLSLdmGOTEntry(const Atom *a) {
   if (_gotLDMEntry)
     return _gotLDMEntry;
 
-  _gotLDMEntry = new (_file._alloc) GOTTLSGdAtom(_file);
+  _gotLDMEntry = new (_file._alloc) GOTTLSGdAtom<ELFT>(_file);
   _tlsGotVector.push_back(_gotLDMEntry);
-  _gotLDMEntry->addReferenceELF_Mips(R_MIPS_TLS_DTPMOD32, 0, _gotLDMEntry, 0);
+  if (ELFT::Is64Bits)
+    _gotLDMEntry->addReferenceELF_Mips(R_MIPS_TLS_DTPMOD64, 0, _gotLDMEntry, 0);
+  else
+    _gotLDMEntry->addReferenceELF_Mips(R_MIPS_TLS_DTPMOD32, 0, _gotLDMEntry, 0);
 
   return _gotLDMEntry;
 }
@@ -872,7 +969,9 @@ const PLTAtom *RelocationPass<ELFT>::getPLTRegEntry(const Atom *a) {
   if (plt != _pltRegMap.end())
     return plt->second;
 
-  auto pa = new (_file._alloc) PLTAAtom(getGOTPLTEntry(a), _file);
+  PLTAAtom *pa = isR6Target()
+                     ? new (_file._alloc) PLTR6Atom(getGOTPLTEntry(a), _file)
+                     : new (_file._alloc) PLTAAtom(getGOTPLTEntry(a), _file);
   _pltRegMap[a] = pa;
   _pltRegVector.push_back(pa);
 
@@ -960,10 +1059,10 @@ static std::unique_ptr<Pass> createPass(MipsLinkingContext &ctx) {
 std::unique_ptr<Pass>
 lld::elf::createMipsRelocationPass(MipsLinkingContext &ctx) {
   switch (ctx.getOutputELFType()) {
-  case llvm::ELF::ET_EXEC:
-  case llvm::ELF::ET_DYN:
+  case ET_EXEC:
+  case ET_DYN:
     return createPass(ctx);
-  case llvm::ELF::ET_REL:
+  case ET_REL:
     return nullptr;
   default:
     llvm_unreachable("Unhandled output file type");

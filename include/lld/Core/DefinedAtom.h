@@ -173,13 +173,6 @@ public:
     sectionCustomRequired   // linker must place in specific section
   };
 
-  enum SectionPosition {
-    sectionPositionStart,   // atom must be at start of section (and zero size)
-    sectionPositionEarly,   // atom should be near start of section
-    sectionPositionAny,     // atom can be anywhere in section
-    sectionPositionEnd      // atom must be at end of section (and zero size)
-  };
-
   enum DeadStripKind {
     deadStripNormal,        // linker may dead strip this atom
     deadStripNever,         // linker must never dead strip this atom
@@ -234,6 +227,13 @@ public:
   /// For a function atom, it is the number of bytes of code in the function.
   virtual uint64_t size() const = 0;
 
+  /// \brief The size of the section from which the atom is instantiated.
+  ///
+  /// Merge::mergeByLargestSection is defined in terms of section size
+  /// and not in terms of atom size, so we need this function separate
+  /// from size().
+  virtual uint64_t sectionSize() const { return 0; }
+
   /// \brief The visibility of this atom to other atoms.
   ///
   /// C static functions have scope scopeTranslationUnit.  Regular C functions
@@ -264,9 +264,6 @@ public:
   /// \brief If sectionChoice() != sectionBasedOnContent, then this return the
   /// name of the section the atom should be placed into.
   virtual StringRef customSectionName() const = 0;
-
-  /// \brief constraints on whether the linker may dead strip away this atom.
-  virtual SectionPosition sectionPosition() const = 0;
 
   /// \brief constraints on whether the linker may dead strip away this atom.
   virtual DeadStripKind deadStrip() const = 0;
@@ -325,7 +322,7 @@ public:
   /// \brief Returns an iterator to the end of this Atom's References.
   virtual reference_iterator end() const = 0;
 
-  static inline bool classof(const Atom *a) {
+  static bool classof(const Atom *a) {
     return a->definition() == definitionRegular;
   }
 
@@ -357,12 +354,6 @@ protected:
   // DefinedAtom is an abstract base class. Only subclasses can access
   // constructor.
   DefinedAtom() : Atom(definitionRegular) { }
-
-  // The memory for DefinedAtom objects is always managed by the owning File
-  // object.  Therefore, no one but the owning File object should call delete on
-  // an Atom.  In fact, some File objects may bulk allocate an array of Atoms,
-  // so they cannot be individually deleted by anyone.
-  virtual ~DefinedAtom() {}
 
   /// \brief Returns a pointer to the Reference object that the abstract
   /// iterator "points" to.

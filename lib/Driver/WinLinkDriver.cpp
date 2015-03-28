@@ -805,9 +805,8 @@ parseArgs(int argc, const char **argv, PECOFFLinkingContext &ctx,
 // graph.
 static bool hasLibrary(PECOFFLinkingContext &ctx, File *file) {
   StringRef path = file->path();
-  std::vector<std::unique_ptr<Node>> &nodes = ctx.getNodes();
-  for (size_t i = 0; i < nodes.size(); ++i)
-    if (auto *f = dyn_cast<FileNode>(nodes[i].get()))
+  for (std::unique_ptr<Node> &p : ctx.getNodes())
+    if (auto *f = dyn_cast<FileNode>(p.get()))
       if (f->getFile()->path() == path)
         return true;
   return false;
@@ -1341,8 +1340,10 @@ bool WinLinkDriver::parse(int argc, const char *argv[],
 
   // Add the input files to the linking context.
   for (std::unique_ptr<File> &file : files) {
-    if (isReadingDirectiveSection)
-      file.get()->parse();
+    if (isReadingDirectiveSection) {
+      File *f = file.get();
+      ctx.getTaskGroup().spawn([f] { f->parse(); });
+    }
     ctx.getNodes().push_back(llvm::make_unique<FileNode>(std::move(file)));
   }
 
@@ -1355,8 +1356,10 @@ bool WinLinkDriver::parse(int argc, const char *argv[],
   // Add the library files to the library group.
   for (std::unique_ptr<File> &file : libraries) {
     if (!hasLibrary(ctx, file.get())) {
-      if (isReadingDirectiveSection)
-        file.get()->parse();
+      if (isReadingDirectiveSection) {
+        File *f = file.get();
+        ctx.getTaskGroup().spawn([f] { f->parse(); });
+      }
       ctx.addLibraryFile(llvm::make_unique<FileNode>(std::move(file)));
     }
   }

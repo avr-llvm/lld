@@ -21,6 +21,7 @@
 #include "Atoms.h"
 #include "lld/Core/Simple.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Debug.h"
 
 using namespace lld;
@@ -75,11 +76,7 @@ public:
 
 class AArch64PLT0Atom : public PLT0Atom {
 public:
-  AArch64PLT0Atom(const File &f) : PLT0Atom(f) {
-#ifndef NDEBUG
-    _name = ".PLT0";
-#endif
-  }
+  AArch64PLT0Atom(const File &f) : PLT0Atom(f) {}
   ArrayRef<uint8_t> rawContent() const override {
     return ArrayRef<uint8_t>(AArch64Plt0AtomContent, 32);
   }
@@ -488,7 +485,7 @@ public:
   const GOTAtom *getSharedGOT(const SharedLibraryAtom *sla) {
     auto got = _gotMap.find(sla);
     if (got == _gotMap.end()) {
-      auto g = new (_file._alloc) AArch64GOTAtom(_file, ".got.dyn");
+      auto g = new (_file._alloc) AArch64GOTAtom(_file, ".got");
       g->addReferenceELF_AArch64(R_AARCH64_GLOB_DAT, 0, sla, 0);
 #ifndef NDEBUG
       g->_name = "__got_";

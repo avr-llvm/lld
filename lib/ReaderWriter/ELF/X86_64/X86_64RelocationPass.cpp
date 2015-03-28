@@ -24,27 +24,27 @@
 #include "X86_64LinkingContext.h"
 #include "lld/Core/Simple.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/STLExtras.h"
 
 using namespace lld;
 using namespace lld::elf;
 using namespace llvm::ELF;
 
-namespace {
 // .got values
-const uint8_t x86_64GotAtomContent[8] = { 0 };
+static const uint8_t x86_64GotAtomContent[8] = {0};
 
 // .plt value (entry 0)
-const uint8_t x86_64Plt0AtomContent[16] = {
-  0xff, 0x35, 0x00, 0x00, 0x00, 0x00, // pushq GOT+8(%rip)
-  0xff, 0x25, 0x00, 0x00, 0x00, 0x00, // jmp *GOT+16(%rip)
-  0x90, 0x90, 0x90, 0x90              // nopnopnop
+static const uint8_t x86_64Plt0AtomContent[16] = {
+    0xff, 0x35, 0x00, 0x00, 0x00, 0x00, // pushq GOT+8(%rip)
+    0xff, 0x25, 0x00, 0x00, 0x00, 0x00, // jmp *GOT+16(%rip)
+    0x90, 0x90, 0x90, 0x90              // nopnopnop
 };
 
 // .plt values (other entries)
-const uint8_t x86_64PltAtomContent[16] = {
-  0xff, 0x25, 0x00, 0x00, 0x00, 0x00, // jmpq *gotatom(%rip)
-  0x68, 0x00, 0x00, 0x00, 0x00,       // pushq reloc-index
-  0xe9, 0x00, 0x00, 0x00, 0x00        // jmpq plt[-1]
+static const uint8_t x86_64PltAtomContent[16] = {
+    0xff, 0x25, 0x00, 0x00, 0x00, 0x00, // jmpq *gotatom(%rip)
+    0x68, 0x00, 0x00, 0x00, 0x00,       // pushq reloc-index
+    0xe9, 0x00, 0x00, 0x00, 0x00        // jmpq plt[-1]
 };
 
 // TLS GD Entry
@@ -53,6 +53,7 @@ static const uint8_t x86_64GotTlsGdAtomContent[] = {
   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 };
 
+namespace {
 /// \brief Atoms that are used by X86_64 dynamic linking
 class X86_64GOTAtom : public GOTAtom {
 public:
@@ -75,11 +76,7 @@ public:
 
 class X86_64PLT0Atom : public PLT0Atom {
 public:
-  X86_64PLT0Atom(const File &f) : PLT0Atom(f) {
-#ifndef NDEBUG
-    _name = ".PLT0";
-#endif
-  }
+  X86_64PLT0Atom(const File &f) : PLT0Atom(f) {}
   ArrayRef<uint8_t> rawContent() const override {
     return ArrayRef<uint8_t>(x86_64Plt0AtomContent, 16);
   }
@@ -115,6 +112,7 @@ template <class Derived> class RelocationPass : public Pass {
     case R_X86_64_32:
     case R_X86_64_32S:
     case R_X86_64_64:
+    case R_X86_64_PC16:
     case R_X86_64_PC32:
     case R_X86_64_PC64:
       static_cast<Derived *>(this)->handlePlain(ref);
@@ -472,7 +470,7 @@ public:
   const GOTAtom *getSharedGOT(const Atom *a) {
     auto got = _gotMap.find(a);
     if (got == _gotMap.end()) {
-      auto g = new (_file._alloc) X86_64GOTAtom(_file, ".got.dyn");
+      auto g = new (_file._alloc) X86_64GOTAtom(_file, ".got");
       g->addReferenceELF_x86_64(R_X86_64_GLOB_DAT, 0, a, 0);
 #ifndef NDEBUG
       g->_name = "__got_";

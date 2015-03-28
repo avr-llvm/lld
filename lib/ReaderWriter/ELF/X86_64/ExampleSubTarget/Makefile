@@ -1,4 +1,4 @@
-##===- tools/Makefile --------------------------------------*- Makefile -*-===##
+##===- lld/lib/ReaderWriter/ELF/X86_64/Makefile ----------*- Makefile -*-===##
 #
 #                     The LLVM Compiler Infrastructure
 #
@@ -7,11 +7,9 @@
 #
 ##===----------------------------------------------------------------------===##
 
-LLD_LEVEL := ..
-LEVEL := $(LLD_LEVEL)/../..
-
-include $(LLD_LEVEL)/../../Makefile.config
-
-DIRS := linker-script-test
+LLD_LEVEL := ../../../../..
+LIBRARYNAME := lldExampleSubTarget
+USEDLIBS = lldX86_64ELFTarget.a
+CPP.Flags += -I$(PROJ_SRC_DIR)/$(LLD_LEVEL)/lib/ReaderWriter/ELF
 
 include $(LLD_LEVEL)/Makefile

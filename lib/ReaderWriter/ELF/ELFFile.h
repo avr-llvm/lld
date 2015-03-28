@@ -11,6 +11,7 @@
 #define LLD_READER_WRITER_ELF_FILE_H
 
 #include "Atoms.h"
+#include <llvm/ADT/MapVector.h>
 #include <map>
 #include <unordered_map>
 
@@ -408,7 +409,7 @@ protected:
 
   /// \brief the section and the symbols that are contained within it to create
   /// used to create atoms
-  std::map<const Elf_Shdr *, std::vector<Elf_Sym_Iter>> _sectionSymbols;
+  llvm::MapVector<const Elf_Shdr *, std::vector<Elf_Sym_Iter>> _sectionSymbols;
 
   /// \brief Sections that have merge string property
   std::vector<const Elf_Shdr *> _mergeStringSections;
@@ -430,14 +431,14 @@ protected:
 };
 
 /// \brief All atoms are owned by a File. To add linker specific atoms
-/// the atoms need to be inserted to a file called (CRuntimeFile) which
+/// the atoms need to be inserted to a file called (RuntimeFile) which
 /// are basically additional symbols required by libc and other runtime
 /// libraries part of executing a program. This class provides support
 /// for adding absolute symbols and undefined symbols
-template <class ELFT> class CRuntimeFile : public ELFFile<ELFT> {
+template <class ELFT> class RuntimeFile : public ELFFile<ELFT> {
 public:
   typedef llvm::object::Elf_Sym_Impl<ELFT> Elf_Sym;
-  CRuntimeFile(ELFLinkingContext &context, StringRef name = "C runtime")
+  RuntimeFile(ELFLinkingContext &context, StringRef name)
       : ELFFile<ELFT>(name, context) {}
 
   /// \brief add a global absolute atom
@@ -448,7 +449,7 @@ public:
     symbol->st_value = 0;
     symbol->st_shndx = llvm::ELF::SHN_ABS;
     symbol->setBindingAndType(llvm::ELF::STB_GLOBAL, llvm::ELF::STT_OBJECT);
-    symbol->st_other = llvm::ELF::STV_DEFAULT;
+    symbol->setVisibility(llvm::ELF::STV_DEFAULT);
     symbol->st_size = 0;
     auto newAtom = this->handleAbsoluteSymbol(symbolName, symbol, -1);
     this->_absoluteAtoms._atoms.push_back(*newAtom);
@@ -463,14 +464,14 @@ public:
     symbol->st_value = 0;
     symbol->st_shndx = llvm::ELF::SHN_UNDEF;
     symbol->setBindingAndType(llvm::ELF::STB_GLOBAL, llvm::ELF::STT_NOTYPE);
-    symbol->st_other = llvm::ELF::STV_DEFAULT;
+    symbol->setVisibility(llvm::ELF::STV_DEFAULT);
     symbol->st_size = 0;
     auto newAtom = this->handleUndefinedSymbol(symbolName, symbol);
     this->_undefinedAtoms._atoms.push_back(*newAtom);
     return *newAtom;
   }
 
-  // cannot add atoms to C Runtime file
+  // cannot add atoms to Runtime file
   virtual void addAtom(const Atom &) {
     llvm_unreachable("cannot add atoms to Runtime files");
   }

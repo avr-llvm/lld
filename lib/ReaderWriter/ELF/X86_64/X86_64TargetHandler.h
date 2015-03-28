@@ -11,10 +11,10 @@
 #define LLD_READER_WRITER_ELF_X86_64_X86_64_TARGET_HANDLER_H
 
 #include "DefaultTargetHandler.h"
-#include "X86_64LinkingContext.h"
 #include "TargetLayout.h"
 #include "X86_64ELFFile.h"
 #include "X86_64ELFReader.h"
+#include "X86_64LinkingContext.h"
 #include "X86_64RelocationHandler.h"
 #include "lld/Core/Simple.h"
 
@@ -24,6 +24,11 @@ class X86_64TargetLayout : public TargetLayout<X86_64ELFType> {
 public:
   X86_64TargetLayout(X86_64LinkingContext &context)
       : TargetLayout(context) {}
+
+  void finalizeOutputSectionLayout() override {
+    sortOutputSectionByPriority(".init_array", ".init_array");
+    sortOutputSectionByPriority(".fini_array", ".fini_array");
+  }
 };
 
 class X86_64TargetHandler

@@ -62,10 +62,14 @@ void Token::dump(raw_ostream &os) const {
     CASE(kw_discard)
     CASE(kw_entry)
     CASE(kw_exclude_file)
+    CASE(kw_extern)
     CASE(kw_group)
     CASE(kw_hidden)
     CASE(kw_input)
     CASE(kw_keep)
+    CASE(kw_length)
+    CASE(kw_memory)
+    CASE(kw_origin)
     CASE(kw_provide)
     CASE(kw_provide_hidden)
     CASE(kw_only_if_ro)
@@ -464,12 +468,20 @@ void Lexer::lex(Token &tok) {
             .Case("AT", Token::kw_at)
             .Case("ENTRY", Token::kw_entry)
             .Case("EXCLUDE_FILE", Token::kw_exclude_file)
+            .Case("EXTERN", Token::kw_extern)
             .Case("GROUP", Token::kw_group)
             .Case("HIDDEN", Token::kw_hidden)
             .Case("INPUT", Token::kw_input)
             .Case("KEEP", Token::kw_keep)
+            .Case("LENGTH", Token::kw_length)
+            .Case("l", Token::kw_length)
+            .Case("len", Token::kw_length)
+            .Case("MEMORY", Token::kw_memory)
             .Case("ONLY_IF_RO", Token::kw_only_if_ro)
             .Case("ONLY_IF_RW", Token::kw_only_if_rw)
+            .Case("ORIGIN", Token::kw_origin)
+            .Case("o", Token::kw_origin)
+            .Case("org", Token::kw_origin)
             .Case("OUTPUT", Token::kw_output)
             .Case("OUTPUT_ARCH", Token::kw_output_arch)
             .Case("OUTPUT_FORMAT", Token::kw_output_format)
@@ -532,8 +544,19 @@ void Lexer::skipWhitespace() {
 // Constant functions
 void Constant::dump(raw_ostream &os) const { os << _num; }
 
+ErrorOr<int64_t> Constant::evalExpr(SymbolTableTy &symbolTable) const {
+  return _num;
+}
+
 // Symbol functions
 void Symbol::dump(raw_ostream &os) const { os << _name; }
+
+ErrorOr<int64_t> Symbol::evalExpr(SymbolTableTy &symbolTable) const {
+  auto it = symbolTable.find(_name);
+  if (it == symbolTable.end())
+    return LinkerScriptReaderError::unknown_symbol_in_expr;
+  return it->second;
+}
 
 // FunctionCall functions
 void FunctionCall::dump(raw_ostream &os) const {
@@ -546,6 +569,10 @@ void FunctionCall::dump(raw_ostream &os) const {
   os << ")";
 }
 
+ErrorOr<int64_t> FunctionCall::evalExpr(SymbolTableTy &symbolTable) const {
+  return LinkerScriptReaderError::unrecognized_function_in_expr;
+}
+
 // Unary functions
 void Unary::dump(raw_ostream &os) const {
   os << "(";
@@ -555,6 +582,22 @@ void Unary::dump(raw_ostream &os) const {
     os << "~";
   _child->dump(os);
   os << ")";
+}
+
+ErrorOr<int64_t> Unary::evalExpr(SymbolTableTy &symbolTable) const {
+  auto child = _child->evalExpr(symbolTable);
+  if (child.getError())
+    return child.getError();
+
+  int64_t childRes = *child;
+  switch (_op) {
+  case Unary::Minus:
+    return -childRes;
+  case Unary::Not:
+    return ~childRes;
+  }
+
+  llvm_unreachable("");
 }
 
 // BinOp functions
@@ -611,6 +654,37 @@ void BinOp::dump(raw_ostream &os) const {
   os << ")";
 }
 
+ErrorOr<int64_t> BinOp::evalExpr(SymbolTableTy &symbolTable) const {
+  auto lhs = _lhs->evalExpr(symbolTable);
+  if (lhs.getError())
+    return lhs.getError();
+  auto rhs = _rhs->evalExpr(symbolTable);
+  if (rhs.getError())
+    return rhs.getError();
+
+  int64_t lhsRes = *lhs;
+  int64_t rhsRes = *rhs;
+
+  switch(_op) {
+  case And:                 return lhsRes & rhsRes;
+  case CompareDifferent:    return lhsRes != rhsRes;
+  case CompareEqual:        return lhsRes == rhsRes;
+  case CompareGreater:      return lhsRes > rhsRes;
+  case CompareGreaterEqual: return lhsRes >= rhsRes;
+  case CompareLess:         return lhsRes < rhsRes;
+  case CompareLessEqual:    return lhsRes <= rhsRes;
+  case Div:                 return lhsRes / rhsRes;
+  case Mul:                 return lhsRes * rhsRes;
+  case Or:                  return lhsRes | rhsRes;
+  case Shl:                 return lhsRes << rhsRes;
+  case Shr:                 return lhsRes >> rhsRes;
+  case Sub:                 return lhsRes - rhsRes;
+  case Sum:                 return lhsRes + rhsRes;
+  }
+
+  llvm_unreachable("");
+}
+
 // TernaryConditional functions
 void TernaryConditional::dump(raw_ostream &os) const {
   _conditional->dump(os);
@@ -620,11 +694,21 @@ void TernaryConditional::dump(raw_ostream &os) const {
   _falseExpr->dump(os);
 }
 
+ErrorOr<int64_t>
+TernaryConditional::evalExpr(SymbolTableTy &symbolTable) const {
+  auto conditional = _conditional->evalExpr(symbolTable);
+  if (conditional.getError())
+    return conditional.getError();
+  if (*conditional)
+    return _trueExpr->evalExpr(symbolTable);
+  return _falseExpr->evalExpr(symbolTable);
+}
+
 // SymbolAssignment functions
 void SymbolAssignment::dump(raw_ostream &os) const {
   int numParen = 0;
 
-  if (_assignmentVisibility != Normal) {
+  if (_assignmentVisibility != Default) {
     switch (_assignmentVisibility) {
     case Hidden:
       os << "HIDDEN(";
@@ -751,7 +835,7 @@ void InputSectionsCmd::dump(raw_ostream &os) const {
     os << "KEEP(";
 
   int numParen = dumpSortDirectives(os, _fileSortMode);
-  os << _fileName;
+  os << _memberName;
   for (int i = 0; i < numParen; ++i)
     os << ")";
 
@@ -844,6 +928,44 @@ void Sections::dump(raw_ostream &os) const {
   os << "}\n";
 }
 
+// Memory functions
+void MemoryBlock::dump(raw_ostream &os) const {
+    os << _name;
+
+    if (!_attr.empty())
+      os << " (" << _attr << ")";
+
+    os << " : ";
+
+    os << "ORIGIN = ";
+    _origin->dump(os);
+    os << ", ";
+
+    os << "LENGTH = ";
+    _length->dump(os);
+}
+
+void Memory::dump(raw_ostream &os) const {
+  os << "MEMORY\n{\n";
+  for (auto &block : _blocks) {
+    block->dump(os);
+    os << "\n";
+  }
+  os << "}\n";
+}
+
+// Extern functions
+void Extern::dump(raw_ostream &os) const {
+  os << "EXTERN(";
+  for (unsigned i = 0, e = _symbols.size(); i != e; ++i) {
+    if (i)
+      os << " ";
+    os << _symbols[i];
+  }
+  os << ")\n";
+}
+
+
 // Parser functions
 std::error_code Parser::parse() {
   // Get the first token.
@@ -921,6 +1043,20 @@ std::error_code Parser::parse() {
     case Token::kw_provide:
     case Token::kw_provide_hidden: {
       const Command *cmd = parseSymbolAssignment();
+      if (!cmd)
+        return LinkerScriptReaderError::parse_error;
+      _script._commands.push_back(cmd);
+      break;
+    }
+    case Token::kw_memory: {
+      const Command *cmd = parseMemory();
+      if (!cmd)
+        return LinkerScriptReaderError::parse_error;
+      _script._commands.push_back(cmd);
+      break;
+    }
+    case Token::kw_extern: {
+      const Command *cmd = parseExtern();
       if (!cmd)
         return LinkerScriptReaderError::parse_error;
       _script._commands.push_back(cmd);
@@ -1354,7 +1490,7 @@ const SymbolAssignment *Parser::parseSymbolAssignment() {
           _tok._kind == Token::kw_provide ||
           _tok._kind == Token::kw_provide_hidden) &&
          "Expected identifier!");
-  SymbolAssignment::AssignmentVisibility visibility = SymbolAssignment::Normal;
+  SymbolAssignment::AssignmentVisibility visibility = SymbolAssignment::Default;
   SymbolAssignment::AssignmentKind kind;
   int numParen = 0;
 
@@ -1563,7 +1699,7 @@ const InputSectionsCmd *Parser::parseInputSectionsCmd() {
   bool keep = false;
   WildcardSortMode fileSortMode = WildcardSortMode::NA;
   WildcardSortMode archiveSortMode = WildcardSortMode::NA;
-  StringRef fileName;
+  StringRef memberName;
   StringRef archiveName;
 
   if (_tok._kind == Token::kw_keep) {
@@ -1579,7 +1715,7 @@ const InputSectionsCmd *Parser::parseInputSectionsCmd() {
     int numParen = parseSortDirectives(fileSortMode);
     if (numParen == -1)
       return nullptr;
-    fileName = _tok._range;
+    memberName = _tok._range;
     consumeToken();
     if (numParen) {
       while (numParen--)
@@ -1609,7 +1745,7 @@ const InputSectionsCmd *Parser::parseInputSectionsCmd() {
 
   if (_tok._kind != Token::l_paren)
     return new (_alloc)
-        InputSectionsCmd(*this, fileName, archiveName, keep, fileSortMode,
+        InputSectionsCmd(*this, memberName, archiveName, keep, fileSortMode,
                          archiveSortMode, inputSections);
   consumeToken();
 
@@ -1653,7 +1789,7 @@ const InputSectionsCmd *Parser::parseInputSectionsCmd() {
     if (!expectAndConsume(Token::r_paren, "expected )"))
       return nullptr;
   return new (_alloc)
-      InputSectionsCmd(*this, fileName, archiveName, keep, fileSortMode,
+      InputSectionsCmd(*this, memberName, archiveName, keep, fileSortMode,
                        archiveSortMode, inputSections);
 }
 
@@ -1903,5 +2039,526 @@ Sections *Parser::parseSections() {
   return new (_alloc) Sections(*this, sectionsCommands);
 }
 
-} // end namespace script
+Memory *Parser::parseMemory() {
+  assert(_tok._kind == Token::kw_memory && "Expected MEMORY!");
+  consumeToken();
+  if (!expectAndConsume(Token::l_brace, "expected {"))
+    return nullptr;
+  SmallVector<const MemoryBlock *, 8> blocks;
+
+  bool unrecognizedToken = false;
+  // Parse zero or more memory block descriptors.
+  while (!unrecognizedToken) {
+    if (_tok._kind == Token::identifier) {
+      StringRef name;
+      StringRef attrs;
+      const Expression *origin = nullptr;
+      const Expression *length = nullptr;
+
+      name = _tok._range;
+      consumeToken();
+
+      // Parse optional memory region attributes.
+      if (_tok._kind == Token::l_paren) {
+        consumeToken();
+
+        if (_tok._kind != Token::identifier) {
+          error(_tok, "Expected memory attribute string.");
+          return nullptr;
+        }
+        attrs = _tok._range;
+        consumeToken();
+
+        if (!expectAndConsume(Token::r_paren, "expected )"))
+          return nullptr;
+      }
+
+      if (!expectAndConsume(Token::colon, "expected :"))
+        return nullptr;
+
+      // Parse the ORIGIN (base address of memory block).
+      if (!expectAndConsume(Token::kw_origin, "expected ORIGIN"))
+        return nullptr;
+
+      if (!expectAndConsume(Token::equal, "expected ="))
+        return nullptr;
+
+      origin = parseExpression();
+      if (!origin)
+        return nullptr;
+
+      if (!expectAndConsume(Token::comma, "expected ,"))
+        return nullptr;
+
+      // Parse the LENGTH (length of memory block).
+      if (!expectAndConsume(Token::kw_length, "expected LENGTH"))
+        return nullptr;
+
+      if (!expectAndConsume(Token::equal, "expected ="))
+        return nullptr;
+
+      length = parseExpression();
+      if (!length)
+        return nullptr;
+
+      MemoryBlock *block =
+          new (_alloc) MemoryBlock(name, attrs, origin, length);
+      blocks.push_back(block);
+    } else {
+      unrecognizedToken = true;
+    }
+  }
+  if (!expectAndConsume(
+          Token::r_brace,
+          "expected memory block definition."))
+    return nullptr;
+
+  return new (_alloc) Memory(*this, blocks);
+}
+
+Extern *Parser::parseExtern() {
+  assert(_tok._kind == Token::kw_extern && "Expected EXTERN!");
+  consumeToken();
+  if (!expectAndConsume(Token::l_paren, "expected ("))
+    return nullptr;
+
+  // Parse one or more symbols.
+  SmallVector<StringRef, 8> symbols;
+  if (_tok._kind != Token::identifier) {
+    error(_tok, "expected one or more symbols in EXTERN.");
+    return nullptr;
+  }
+  symbols.push_back(_tok._range);
+  consumeToken();
+  while (_tok._kind == Token::identifier) {
+    symbols.push_back(_tok._range);
+    consumeToken();
+  }
+
+  if (!expectAndConsume(Token::r_paren, "expected symbol in EXTERN."))
+    return nullptr;
+
+  return new (_alloc) Extern(*this, symbols);
+}
+
+// Sema member functions
+Sema::Sema()
+    : _scripts(), _layoutCommands(), _memberToLayoutOrder(),
+      _memberNameWildcards(), _cacheSectionOrder(), _cacheExpressionOrder(),
+      _deliveredExprs(), _symbolTable() {}
+
+void Sema::perform() {
+  for (auto &parser : _scripts)
+    perform(parser->get());
+}
+
+bool Sema::less(const SectionKey &lhs, const SectionKey &rhs) const {
+  int a = getLayoutOrder(lhs, true);
+  int b = getLayoutOrder(rhs, true);
+
+  if (a != b) {
+    if (a < 0)
+      return false;
+    if (b < 0)
+      return true;
+    return a < b;
+  }
+
+  // If both sections are not mapped anywhere, they have the same order
+  if (a < 0)
+    return false;
+
+  // If both sections fall into the same layout order, we need to find their
+  // relative position as written in the (InputSectionsCmd).
+  return localCompare(a, lhs, rhs);
+}
+
+StringRef Sema::getOutputSection(const SectionKey &key) const {
+  int layoutOrder = getLayoutOrder(key, true);
+  if (layoutOrder < 0)
+    return StringRef();
+
+  for (int i = layoutOrder - 1; i >= 0; --i) {
+    if (!isa<OutputSectionDescription>(_layoutCommands[i]))
+      continue;
+
+    const OutputSectionDescription *out =
+        dyn_cast<OutputSectionDescription>(_layoutCommands[i]);
+    return out->name();
+  }
+
+  return StringRef();
+}
+
+std::vector<const SymbolAssignment *>
+Sema::getExprs(const SectionKey &key) {
+  int layoutOrder = getLayoutOrder(key, false);
+  auto ans = std::vector<const SymbolAssignment *>();
+
+  if (layoutOrder < 0 || _deliveredExprs.count(layoutOrder) > 0)
+    return ans;
+
+  for (int i = layoutOrder - 1; i >= 0; --i) {
+    if (isa<InputSection>(_layoutCommands[i]))
+      break;
+    if (auto assgn = dyn_cast<SymbolAssignment>(_layoutCommands[i]))
+      ans.push_back(assgn);
+  }
+
+  // Reverse this order so we evaluate the expressions in the original order
+  // of the linker script
+  std::reverse(ans.begin(), ans.end());
+
+  // Mark this layout number as delivered
+  _deliveredExprs.insert(layoutOrder);
+  return ans;
+}
+
+std::error_code Sema::evalExpr(const SymbolAssignment *assgn,
+                               uint64_t &curPos) {
+  _symbolTable[StringRef(".")] = curPos;
+
+  auto ans = assgn->expr()->evalExpr(_symbolTable);
+  if (ans.getError())
+    return ans.getError();
+  uint64_t result = *ans;
+
+  if (assgn->symbol() == ".") {
+    curPos = result;
+    return std::error_code();
+  }
+
+  _symbolTable[assgn->symbol()] = result;
+  return std::error_code();
+}
+
+const llvm::StringSet<> &Sema::getScriptDefinedSymbols() const {
+  // Do we have cached results?
+  if (!_definedSymbols.empty())
+    return _definedSymbols;
+
+  // Populate our defined set and return it
+  for (auto cmd : _layoutCommands)
+    if (auto sa = dyn_cast<SymbolAssignment>(cmd)) {
+      StringRef symbol = sa->symbol();
+      if (!symbol.empty() && symbol != ".")
+        _definedSymbols.insert(symbol);
+    }
+
+  return _definedSymbols;
+}
+
+uint64_t Sema::getLinkerScriptExprValue(StringRef name) const {
+  auto it = _symbolTable.find(name);
+  assert (it != _symbolTable.end() && "Invalid symbol name!");
+  return it->second;
+}
+
+void Sema::dump() const {
+  raw_ostream &os = llvm::outs();
+  os << "Linker script semantics dump\n";
+  int num = 0;
+  for (auto &parser : _scripts) {
+    os << "Dumping script #" << ++num << ":\n";
+    parser->get()->dump(os);
+    os << "\n";
+  }
+  os << "Dumping rule ids:\n";
+  for (unsigned i = 0; i < _layoutCommands.size(); ++i) {
+    os << "LayoutOrder " << i << ":\n";
+    _layoutCommands[i]->dump(os);
+    os << "\n\n";
+  }
+}
+
+/// Given a string "pattern" with wildcard characters, return true if it
+/// matches "name". This function is useful when checking if a given name
+/// pattern written in the linker script, i.e. ".text*", should match
+/// ".text.anytext".
+static bool wildcardMatch(StringRef pattern, StringRef name) {
+  auto i = name.begin();
+
+  // Check if each char in pattern also appears in our input name, handling
+  // special wildcard characters.
+  for (auto j = pattern.begin(), e = pattern.end(); j != e; ++j) {
+    if (i == name.end())
+      return false;
+
+    switch (*j) {
+    case '*':
+      while (!wildcardMatch(pattern.drop_front(j - pattern.begin() + 1),
+                            name.drop_front(i - name.begin() + 1))) {
+        if (i == name.end())
+          return false;
+        ++i;
+      }
+      break;
+    case '?':
+      // Matches any character
+      break;
+    case '[': {
+      // Matches a range of characters specified between brackets
+      size_t end = pattern.find(']', j - pattern.begin());
+      if (end == pattern.size())
+        return false;
+
+      StringRef chars = pattern.slice(j - pattern.begin(), end);
+      if (chars.find(i) == StringRef::npos)
+        return false;
+
+      j = pattern.begin() + end;
+      break;
+    }
+    case '\\':
+      ++j;
+      if (*j != *i)
+        return false;
+      break;
+    default:
+      // No wildcard character means we must match exactly the same char
+      if (*j != *i)
+        return false;
+      break;
+    }
+    ++i;
+  }
+
+  // If our pattern has't consumed the entire string, it is not a match
+  return i == name.end();
+}
+
+int Sema::matchSectionName(int id, const SectionKey &key) const {
+  const InputSectionsCmd *cmd = dyn_cast<InputSectionsCmd>(_layoutCommands[id]);
+
+  if (!cmd || !wildcardMatch(cmd->archiveName(), key.archivePath))
+    return -1;
+
+  while ((size_t)++id < _layoutCommands.size() &&
+         (isa<InputSection>(_layoutCommands[id]))) {
+    if (isa<InputSectionSortedGroup>(_layoutCommands[id]))
+      continue;
+
+    const InputSectionName *in =
+        dyn_cast<InputSectionName>(_layoutCommands[id]);
+    if (wildcardMatch(in->name(), key.sectionName))
+      return id;
+  }
+  return -1;
+}
+
+int Sema::getLayoutOrder(const SectionKey &key, bool coarse) const {
+  // First check if we already answered this layout question
+  if (coarse) {
+    auto entry = _cacheSectionOrder.find(key);
+    if (entry != _cacheSectionOrder.end())
+      return entry->second;
+  } else {
+    auto entry = _cacheExpressionOrder.find(key);
+    if (entry != _cacheExpressionOrder.end())
+      return entry->second;
+  }
+
+  // Try to match exact file name
+  auto range = _memberToLayoutOrder.equal_range(key.memberPath);
+  for (auto I = range.first, E = range.second; I != E; ++I) {
+    int order = I->second;
+    int exprOrder = -1;
+
+    if ((exprOrder = matchSectionName(order, key)) >= 0) {
+      if (coarse) {
+        _cacheSectionOrder.insert(std::make_pair(key, order));
+        return order;
+      }
+      _cacheExpressionOrder.insert(std::make_pair(key, exprOrder));
+      return exprOrder;
+    }
+  }
+
+  // If we still couldn't find a rule for this input section, try to match
+  // wildcards
+  for (auto I = _memberNameWildcards.begin(), E = _memberNameWildcards.end();
+       I != E; ++I) {
+    if (!wildcardMatch(I->first, key.memberPath))
+      continue;
+    int order = I->second;
+    int exprOrder = -1;
+
+    if ((exprOrder = matchSectionName(order, key)) >= 0) {
+      if (coarse) {
+        _cacheSectionOrder.insert(std::make_pair(key, order));
+        return order;
+      }
+      _cacheExpressionOrder.insert(std::make_pair(key, exprOrder));
+      return exprOrder;
+    }
+  }
+
+  _cacheSectionOrder.insert(std::make_pair(key, -1));
+  _cacheExpressionOrder.insert(std::make_pair(key, -1));
+  return -1;
+}
+
+static bool compareSortedNames(WildcardSortMode sortMode, StringRef lhs,
+                               StringRef rhs) {
+  switch (sortMode) {
+  case WildcardSortMode::None:
+  case WildcardSortMode::NA:
+    return false;
+  case WildcardSortMode::ByAlignment:
+  case WildcardSortMode::ByInitPriority:
+  case WildcardSortMode::ByAlignmentAndName:
+    assert(false && "Unimplemented sort order");
+    break;
+  case WildcardSortMode::ByName:
+    return lhs.compare(rhs) < 0;
+  case WildcardSortMode::ByNameAndAlignment:
+    int compare = lhs.compare(rhs);
+    if (compare != 0)
+      return compare < 0;
+    return compareSortedNames(WildcardSortMode::ByAlignment, lhs, rhs);
+  }
+  return false;
+}
+
+static bool sortedGroupContains(const InputSectionSortedGroup *cmd,
+                                const Sema::SectionKey &key) {
+  for (const InputSection *child : *cmd) {
+    if (auto i = dyn_cast<InputSectionName>(child)) {
+      if (wildcardMatch(i->name(), key.sectionName))
+        return true;
+      continue;
+    }
+
+    auto *sortedGroup = dyn_cast<InputSectionSortedGroup>(child);
+    assert(sortedGroup && "Expected InputSectionSortedGroup object");
+
+    if (sortedGroupContains(sortedGroup, key))
+      return true;
+  }
+
+  return false;
+}
+
+bool Sema::localCompare(int order, const SectionKey &lhs,
+                        const SectionKey &rhs) const {
+  const InputSectionsCmd *cmd =
+      dyn_cast<InputSectionsCmd>(_layoutCommands[order]);
+
+  assert(cmd && "Invalid InputSectionsCmd index");
+
+  if (lhs.archivePath != rhs.archivePath)
+    return compareSortedNames(cmd->archiveSortMode(), lhs.archivePath,
+                              rhs.archivePath);
+
+  if (lhs.memberPath != rhs.memberPath)
+    return compareSortedNames(cmd->fileSortMode(), lhs.memberPath,
+                              rhs.memberPath);
+
+  // Both sections come from the same exact same file and rule. Start walking
+  // through input section names as written in the linker script and the
+  // first one to match will have higher priority.
+  for (const InputSection *inputSection : *cmd) {
+    if (auto i = dyn_cast<InputSectionName>(inputSection)) {
+      // If both match, return false (both have equal priority)
+      // If rhs match, return false (rhs has higher priority)
+      if (wildcardMatch(i->name(), rhs.sectionName))
+        return false;
+      //  If lhs matches first, it has priority over rhs
+      if (wildcardMatch(i->name(), lhs.sectionName))
+        return true;
+      continue;
+    }
+
+    // Handle sorted subgroups specially
+    auto *sortedGroup = dyn_cast<InputSectionSortedGroup>(inputSection);
+    assert(sortedGroup && "Expected InputSectionSortedGroup object");
+
+    bool a = sortedGroupContains(sortedGroup, lhs);
+    bool b = sortedGroupContains(sortedGroup, rhs);
+    if (a && !b)
+      return false;
+    if (b && !a)
+      return true;
+    if (!a && !a)
+      continue;
+
+    return compareSortedNames(sortedGroup->sortMode(), lhs.sectionName,
+                              rhs.sectionName);
+  }
+
+  llvm_unreachable("");
+  return false;
+}
+
+static bool hasWildcard(StringRef name) {
+  for (auto ch : name)
+    if (ch == '*' || ch == '?' || ch == '[' || ch == '\\')
+      return true;
+  return false;
+}
+
+void Sema::linearizeAST(const InputSection *inputSection) {
+  if (isa<InputSectionName>(inputSection)) {
+    _layoutCommands.push_back(inputSection);
+    return;
+  }
+
+  auto *sortedGroup = dyn_cast<InputSectionSortedGroup>(inputSection);
+  assert(sortedGroup && "Expected InputSectionSortedGroup object");
+
+  for (const InputSection *child : *sortedGroup) {
+    linearizeAST(child);
+  }
+}
+
+void Sema::linearizeAST(const InputSectionsCmd *inputSections) {
+  StringRef memberName = inputSections->memberName();
+  // Populate our maps for fast lookup of InputSectionsCmd
+  if (hasWildcard(memberName))
+    _memberNameWildcards.push_back(
+        std::make_pair(memberName, (int)_layoutCommands.size()));
+  else if (!memberName.empty())
+    _memberToLayoutOrder.insert(
+        std::make_pair(memberName.str(), (int)_layoutCommands.size()));
+
+  _layoutCommands.push_back(inputSections);
+  for (const InputSection *inputSection : *inputSections)
+    linearizeAST(inputSection);
+}
+
+void Sema::linearizeAST(const Sections *sections) {
+  for (const Command *sectionCommand : *sections) {
+    if (isa<SymbolAssignment>(sectionCommand)) {
+      _layoutCommands.push_back(sectionCommand);
+      continue;
+    }
+
+    if (!isa<OutputSectionDescription>(sectionCommand))
+      continue;
+
+    _layoutCommands.push_back(sectionCommand);
+    auto *outSection = dyn_cast<OutputSectionDescription>(sectionCommand);
+
+    for (const Command *outSecCommand : *outSection) {
+      if (isa<SymbolAssignment>(outSecCommand)) {
+        _layoutCommands.push_back(outSecCommand);
+        continue;
+      }
+
+      if (!isa<InputSectionsCmd>(outSecCommand))
+        continue;
+
+      linearizeAST(dyn_cast<InputSectionsCmd>(outSecCommand));
+    }
+  }
+}
+
+void Sema::perform(const LinkerScript *ls) {
+  for (const Command *c : ls->_commands) {
+    if (const Sections *sec = dyn_cast<Sections>(c))
+      linearizeAST(sec);
+  }
+}
+
+} // End namespace script
 } // end namespace lld

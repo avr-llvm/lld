@@ -23,27 +23,24 @@ namespace lld {
 namespace elf {
 
 /// \brief TargetLayout for Mips
-template <class ELFType>
-class MipsTargetLayout final : public TargetLayout<ELFType> {
+template <class ELFT> class MipsTargetLayout final : public TargetLayout<ELFT> {
 public:
-  MipsTargetLayout(const MipsLinkingContext &ctx)
-      : TargetLayout<ELFType>(ctx),
-        _gotSection(new (_alloc) MipsGOTSection<ELFType>(ctx)),
-        _pltSection(new (_alloc) MipsPLTSection<ELFType>(ctx)) {}
+  MipsTargetLayout(MipsLinkingContext &ctx)
+      : TargetLayout<ELFT>(ctx),
+        _gotSection(new (this->_allocator) MipsGOTSection<ELFT>(ctx)),
+        _pltSection(new (this->_allocator) MipsPLTSection<ELFT>(ctx)) {}
 
-  const MipsGOTSection<ELFType> &getGOTSection() const { return *_gotSection; }
-  const MipsPLTSection<ELFType> &getPLTSection() const { return *_pltSection; }
+  const MipsGOTSection<ELFT> &getGOTSection() const { return *_gotSection; }
+  const MipsPLTSection<ELFT> &getPLTSection() const { return *_pltSection; }
 
-  AtomSection<ELFType> *
-  createSection(StringRef name, int32_t type,
-                DefinedAtom::ContentPermissions permissions,
-                Layout::SectionOrder order) override {
+  AtomSection<ELFT> *createSection(StringRef name, int32_t type,
+                                   DefinedAtom::ContentPermissions permissions,
+                                   Layout::SectionOrder order) override {
     if (type == DefinedAtom::typeGOT && name == ".got")
       return _gotSection;
     if (type == DefinedAtom::typeStub && name == ".plt")
       return _pltSection;
-    return DefaultLayout<ELFType>::createSection(name, type, permissions,
-                                                 order);
+    return DefaultLayout<ELFT>::createSection(name, type, permissions, order);
   }
 
   /// \brief GP offset relative to .got section.
@@ -71,26 +68,32 @@ public:
   Layout::SectionOrder getSectionOrder(StringRef name, int32_t contentType,
                                        int32_t contentPermissions) override {
     if ((contentType == DefinedAtom::typeStub) && (name.startswith(".text")))
-      return DefaultLayout<ELFType>::ORDER_TEXT;
+      return DefaultLayout<ELFT>::ORDER_TEXT;
 
-    return DefaultLayout<ELFType>::getSectionOrder(name, contentType,
-                                                   contentPermissions);
+    return DefaultLayout<ELFT>::getSectionOrder(name, contentType,
+                                                contentPermissions);
+  }
+
+protected:
+  unique_bump_ptr<RelocationTable<ELFT>>
+  createRelocationTable(StringRef name, int32_t order) override {
+    return unique_bump_ptr<RelocationTable<ELFT>>(
+        new (this->_allocator)
+            MipsRelocationTable<ELFT>(this->_context, name, order));
   }
 
 private:
-  llvm::BumpPtrAllocator _alloc;
-  MipsGOTSection<ELFType> *_gotSection;
-  MipsPLTSection<ELFType> *_pltSection;
+  MipsGOTSection<ELFT> *_gotSection;
+  MipsPLTSection<ELFT> *_pltSection;
   llvm::Optional<AtomLayout *> _gpAtom;
   llvm::Optional<AtomLayout *> _gpDispAtom;
 };
 
 /// \brief Mips Runtime file.
-template <class ELFType>
-class MipsRuntimeFile final : public CRuntimeFile<ELFType> {
+template <class ELFT> class MipsRuntimeFile final : public RuntimeFile<ELFT> {
 public:
   MipsRuntimeFile(MipsLinkingContext &ctx)
-      : CRuntimeFile<ELFType>(ctx, "Mips runtime file") {}
+      : RuntimeFile<ELFT>(ctx, "Mips runtime file") {}
 };
 
 /// \brief Auxiliary class holds relocation's names table.
@@ -174,7 +177,7 @@ public:
     }
   }
 
-  void finalize(bool sort = true) override {
+  void finalize(bool sort) override {
     SymbolTable<ELFT>::finalize(sort);
 
     for (auto &ste : this->_symbolTable) {

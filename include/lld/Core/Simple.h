@@ -17,6 +17,7 @@
 
 #include "lld/Core/DefinedAtom.h"
 #include "lld/Core/File.h"
+#include "lld/Core/ArchiveLibraryFile.h"
 #include "lld/Core/LinkingContext.h"
 #include "lld/Core/Reference.h"
 #include "lld/Core/UndefinedAtom.h"
@@ -24,18 +25,6 @@
 #include "llvm/ADT/ilist_node.h"
 
 namespace lld {
-
-// Copy all atoms from src to dst. Atom ownership is not transferred.
-inline void copyAtoms(MutableFile *dst, File *src) {
-  for (const DefinedAtom *atom : src->defined())
-    dst->addAtom(*atom);
-  for (const UndefinedAtom *atom : src->undefined())
-    dst->addAtom(*atom);
-  for (const SharedLibraryAtom *atom : src->sharedLibrary())
-    dst->addAtom(*atom);
-  for (const AbsoluteAtom *atom : src->absolute())
-    dst->addAtom(*atom);
-}
 
 class SimpleFile : public MutableFile {
 public:
@@ -87,6 +76,48 @@ private:
   atom_collection_vector<UndefinedAtom>      _undefinedAtoms;
   atom_collection_vector<SharedLibraryAtom>  _sharedLibraryAtoms;
   atom_collection_vector<AbsoluteAtom>       _absoluteAtoms;
+};
+
+/// \brief Archive library file that may be used as a virtual container
+/// for symbols that should be added dynamically in response to
+/// call to find() method.
+class SimpleArchiveLibraryFile : public ArchiveLibraryFile {
+public:
+  SimpleArchiveLibraryFile(StringRef filename)
+      : ArchiveLibraryFile(filename) {}
+
+  const atom_collection<DefinedAtom> &defined() const override {
+    return _definedAtoms;
+  }
+
+  const atom_collection<UndefinedAtom> &undefined() const override {
+    return _undefinedAtoms;
+  }
+
+  const atom_collection<SharedLibraryAtom> &sharedLibrary() const override {
+    return _sharedLibraryAtoms;
+  }
+
+  const atom_collection<AbsoluteAtom> &absolute() const override {
+    return _absoluteAtoms;
+  }
+
+  File *find(StringRef sym, bool dataSymbolOnly) override {
+    // For descendants:
+    // do some checks here and return dynamically generated files with atoms.
+    return nullptr;
+  }
+
+  std::error_code
+  parseAllMembers(std::vector<std::unique_ptr<File>> &result) override {
+    return std::error_code();
+  }
+
+private:
+  atom_collection_vector<DefinedAtom> _definedAtoms;
+  atom_collection_vector<UndefinedAtom> _undefinedAtoms;
+  atom_collection_vector<SharedLibraryAtom> _sharedLibraryAtoms;
+  atom_collection_vector<AbsoluteAtom> _absoluteAtoms;
 };
 
 class SimpleReference : public Reference {
@@ -199,10 +230,6 @@ public:
     return DefinedAtom::sectionBasedOnContent;
   }
 
-  SectionPosition sectionPosition() const override {
-    return DefinedAtom::sectionPositionAny;
-  }
-
   StringRef customSectionName() const override { return StringRef(); }
   DeadStripKind deadStrip() const override {
     return DefinedAtom::deadStripNormal;
@@ -290,6 +317,23 @@ public:
 private:
   const File &_file;
   StringRef _name;
+};
+
+class SimpleAbsoluteAtom : public AbsoluteAtom {
+public:
+  SimpleAbsoluteAtom(const File &f, StringRef name, Scope s, uint64_t value)
+      : _file(f), _name(name), _scope(s), _value(value) {}
+
+  const File &file() const override { return _file; }
+  StringRef name() const override { return _name; }
+  uint64_t value() const override { return _value; }
+  Scope scope() const override { return _scope; }
+
+private:
+  const File &_file;
+  StringRef _name;
+  Scope _scope;
+  uint64_t _value;
 };
 
 } // end namespace lld

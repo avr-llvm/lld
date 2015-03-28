@@ -17,6 +17,7 @@
 #include "lld/Core/Resolver.h"
 #include "lld/Core/Writer.h"
 #include "lld/Driver/Driver.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/Option/Arg.h"
@@ -76,11 +77,8 @@ bool Driver::link(LinkingContext &context, raw_ostream &diagnostics) {
   if (context.getNodes().empty())
     return false;
 
-  // File::parse may add items to the node list which may invalidate
-  // existing iterators. Avoid using iterator to access elements.
-  std::vector<std::unique_ptr<Node>> &nodes = context.getNodes();
-  for (size_t i = 0; i < nodes.size(); ++i)
-    if (FileNode *node = dyn_cast<FileNode>(nodes[i].get()))
+  for (std::unique_ptr<Node> &ie : context.getNodes())
+    if (FileNode *node = dyn_cast<FileNode>(ie.get()))
       context.getTaskGroup().spawn([node] { node->getFile()->parse(); });
 
   std::vector<std::unique_ptr<File>> internalFiles;
@@ -98,9 +96,10 @@ bool Driver::link(LinkingContext &context, raw_ostream &diagnostics) {
     members.insert(members.begin(), llvm::make_unique<FileNode>(std::move(*i)));
   }
 
-  // Give target a chance to sort the input files.
+  // Give target a chance to postprocess input files.
   // Mach-O uses this chance to move all object files before library files.
-  context.maybeSortInputFiles();
+  // ELF adds specific undefined symbols resolver.
+  context.finalizeInputFiles();
 
   // Do core linking.
   ScopedTask resolveTask(getDefaultDomain(), "Resolve");

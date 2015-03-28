@@ -98,8 +98,7 @@ public:
       return scopeLinkageUnit;
     if (_symbol->getBinding() == llvm::ELF::STB_LOCAL)
       return scopeTranslationUnit;
-    else
-      return scopeGlobal;
+    return scopeGlobal;
   }
 
   StringRef name() const override { return _name; }
@@ -131,8 +130,7 @@ public:
   CanBeNull canBeNull() const override {
     if (_symbol->getBinding() == llvm::ELF::STB_WEAK)
       return CanBeNull::canBeNullAtBuildtime;
-    else
-      return CanBeNull::canBeNullNever;
+    return CanBeNull::canBeNullNever;
   }
 
 private:
@@ -186,10 +184,9 @@ public:
       return scopeGlobal;
     if (_symbol->getVisibility() == llvm::ELF::STV_HIDDEN)
       return scopeLinkageUnit;
-    else if (_symbol->getBinding() != llvm::ELF::STB_LOCAL)
+    if (_symbol->getBinding() != llvm::ELF::STB_LOCAL)
       return scopeGlobal;
-    else
-      return scopeTranslationUnit;
+    return scopeTranslationUnit;
   }
 
   // FIXME: Need to revisit this in future.
@@ -303,7 +300,8 @@ public:
     if ((_symbol->getType() == llvm::ELF::STT_COMMON) ||
         _symbol->st_shndx == llvm::ELF::SHN_COMMON) {
       return Alignment(llvm::Log2_64(symValue));
-    } else if (_section->sh_addralign == 0) {
+    }
+    if (_section->sh_addralign == 0) {
       // sh_addralign of 0 means no alignment
       return Alignment(0, symValue);
     }
@@ -335,10 +333,6 @@ public:
         (_symbol && _symbol->st_shndx == llvm::ELF::SHN_COMMON))
       return ".bss";
     return _sectionName;
-  }
-
-  SectionPosition sectionPosition() const override {
-    return sectionPositionAny;
   }
 
   // It isn't clear that __attribute__((used)) is transmitted to the ELF object
@@ -498,10 +492,6 @@ public:
 
   StringRef customSectionName() const override { return _sectionName; }
 
-  SectionPosition sectionPosition() const override {
-    return sectionPositionAny;
-  }
-
   DeadStripKind deadStrip() const override { return deadStripNormal; }
 
   ContentPermissions permissions() const override { return permR__; }
@@ -560,10 +550,9 @@ public:
   Scope scope() const override {
     if (_symbol->getVisibility() == llvm::ELF::STV_HIDDEN)
       return scopeLinkageUnit;
-    else if (_symbol->getBinding() != llvm::ELF::STB_LOCAL)
+    if (_symbol->getBinding() != llvm::ELF::STB_LOCAL)
       return scopeGlobal;
-    else
-      return scopeTranslationUnit;
+    return scopeTranslationUnit;
   }
 
   Interposable interposable() const override { return interposeNo; }
@@ -579,10 +568,6 @@ public:
   SectionChoice sectionChoice() const override { return sectionBasedOnContent; }
 
   StringRef customSectionName() const override { return ".bss"; }
-
-  SectionPosition sectionPosition() const override {
-    return sectionPositionAny;
-  }
 
   DeadStripKind deadStrip() const override { return deadStripNormal; }
 
@@ -601,10 +586,8 @@ public:
     const void *it = reinterpret_cast<const void *>(index);
     return reference_iterator(*this, it);
   }
+
 protected:
-
-  virtual ~ELFCommonAtom() {}
-
   const Reference *derefIterator(const void *iter) const override {
     return nullptr;
   }
@@ -635,10 +618,9 @@ public:
   virtual Scope scope() const {
     if (_symbol->getVisibility() == llvm::ELF::STV_HIDDEN)
       return scopeLinkageUnit;
-    else if (_symbol->getBinding() != llvm::ELF::STB_LOCAL)
+    if (_symbol->getBinding() != llvm::ELF::STB_LOCAL)
       return scopeGlobal;
-    else
-      return scopeTranslationUnit;
+    return scopeTranslationUnit;
   }
 
   StringRef loadName() const override { return _loadName; }
@@ -803,7 +785,6 @@ public:
 };
 
 class PLT0Atom : public PLTAtom {
-
 public:
   PLT0Atom(const File &f) : PLTAtom(f, ".plt") {
 #ifndef NDEBUG
@@ -818,7 +799,7 @@ public:
 
   StringRef name() const override { return "_GLOBAL_OFFSET_TABLE_"; }
 
-  Scope scope() const override { return scopeGlobal; }
+  Scope scope() const override { return scopeLinkageUnit; }
 
   SectionChoice sectionChoice() const override { return sectionCustomRequired; }
 
@@ -862,36 +843,6 @@ public:
 
   ArrayRef<uint8_t> rawContent() const override { return ArrayRef<uint8_t>(); }
 };
-
-class InitFiniAtom : public SimpleELFDefinedAtom {
-  StringRef _section;
-
-public:
-  InitFiniAtom(const File &f, StringRef secName)
-      : SimpleELFDefinedAtom(f), _section(secName) {}
-
-  Scope scope() const override { return scopeGlobal; }
-
-  SectionChoice sectionChoice() const override { return sectionCustomRequired; }
-
-  StringRef customSectionName() const override { return _section; }
-
-  ContentType contentType() const override { return typeData; }
-
-  uint64_t size() const override { return rawContent().size(); }
-
-  ContentPermissions permissions() const override { return permRW_; }
-
-  Alignment alignment() const override { return size(); }
-
-#ifndef NDEBUG
-  StringRef name() const override { return _name; }
-  std::string _name;
-#else
-  StringRef name() const override { return ""; }
-#endif
-};
-
 } // end namespace elf
 } // end namespace lld
 

@@ -10,6 +10,7 @@
 #include "Atoms.h"
 #include "Pass.h"
 #include "lld/Core/File.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/COFF.h"
 
 namespace lld {
@@ -18,8 +19,8 @@ namespace pecoff {
 static void addReloc(COFFBaseDefinedAtom *atom, const Atom *target,
                      size_t offsetInAtom, Reference::KindArch arch,
                      Reference::KindValue relType) {
-  atom->addReference(llvm::make_unique<COFFReference>(
-      target, offsetInAtom, relType, arch));
+  atom->addReference(llvm::make_unique<SimpleReference>(
+      Reference::KindNamespace::COFF, arch, relType, offsetInAtom, target, 0));
 }
 
 void addDir64Reloc(COFFBaseDefinedAtom *atom, const Atom *target,
