@@ -32,9 +32,6 @@ enum {
   LLD_R_MICROAVR_GLOBAL_26_S1 = 1030,
 };
 
-// FIXME: is 2 the AVR maximum alignment?
-typedef llvm::object::ELFType<llvm::support::little, 2, false> AVRELFType;
-
 class AVRLinkingContext final : public ELFLinkingContext {
 public:
   static std::unique_ptr<ELFLinkingContext> create(llvm::Triple);

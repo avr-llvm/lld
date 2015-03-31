@@ -21,12 +21,14 @@
 namespace lld {
 namespace elf {
 
+typedef llvm::object::ELFType<llvm::support::little, 2, false> AVRELFType;
+
 /// \brief TargetLayout for AVR
-template <class ELFType>
-class AVRTargetLayout final : public TargetLayout<ELFType> {
+template <class ELFT>
+class AVRTargetLayout final : public TargetLayout<ELFT> {
 public:
-  AVRTargetLayout(const AVRLinkingContext &ctx)
-      : TargetLayout<ELFType>(ctx) { }
+  AVRTargetLayout(AVRLinkingContext &ctx)
+      : TargetLayout<ELFT>(ctx) { }
   
   /// \brief GP offset relative to .got section.
   uint64_t getGPOffset() const { return 0x7FF0; }
@@ -56,11 +58,11 @@ private:
 };
 
 /// \brief AVR Runtime file.
-template <class ELFType>
-class AVRRuntimeFile final : public CRuntimeFile<ELFType> {
+template <class ELFT>
+class AVRRuntimeFile final : public RuntimeFile<ELFT> {
 public:
   AVRRuntimeFile(AVRLinkingContext &ctx)
-      : CRuntimeFile<ELFType>(ctx, "AVR runtime file") {}
+      : RuntimeFile<ELFT>(ctx, "AVR runtime file") {}
 };
 
 /// \brief Auxiliary class holds relocation's names table.
