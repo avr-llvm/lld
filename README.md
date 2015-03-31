@@ -1,6 +1,6 @@
 
 # AVR-LLD
 
-A fork of LLVM's linker supporting AVR.
-
-Any attempt at use will likely yield a "relocation not supported" error.
+A fork of LLVM's linker supporting AVR. Relocation support
+has not been thouroughly tested, and so it is possible that
+the output of this tool will be broken.
