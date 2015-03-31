@@ -19,6 +19,6 @@ before_script:
   - cd llvm/
 
 script:
-  - mkdir && cd build
+  - mkdir build && cd build
   - cmake -DLLVM_TARGETS_TO_BUILD="AVR" ../../
   - make
